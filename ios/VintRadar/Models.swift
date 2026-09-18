@@ -1,0 +1,4 @@
+import Foundation
+struct AlertDTO: Codable, Identifiable, Sendable { let id:Int; var name:String; var includeTerms:[String]; var excludeTerms:[String]; var filters:[String:String]?; var minPrice:Double?; var maxPrice:Double?; var scanMinutes:Int; var notifyThreshold:String; var paused:Bool; var lastScanAt:Date? }
+struct ListingDTO: Codable, Identifiable, Sendable { let id:Int; let alertId:Int; let externalId:String; let title:String; let description:String; let price:Double; let shippingEstimate:Double; let buyerFee:Double; let currency:String; let url:String; let imageUrl:String?; let condition:String?; let size:String?; let status:String; let createdAt:Date; let updatedAt:Date; var total:Double { price+shippingEstimate+buyerFee } }
+struct DashboardDTO: Codable, Sendable { let alerts:Int; let listings:Int; let active:Int; let lastScanAt:Date? }
