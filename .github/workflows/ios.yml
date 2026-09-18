@@ -8,6 +8,11 @@ on:
       - "ios/**"
       - ".github/workflows/ios.yml"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Version à publier, par ex. 0.1.0"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -63,7 +68,7 @@ jobs:
           cp -R "$APP" Payload/
           BIN="Payload/VintRadar.app/VintRadar"
           file "$BIN"
-          FILE_INFO="$(file "$BIN")
+          FILE_INFO="$(file "$BIN")"
           echo "$FILE_INFO" | grep -Eq 'arm64|Mach-O 64-bit'
           if echo "$FILE_INFO" | grep -Eqi 'x86_64|simulator'; then echo "::error::Simulator binary found"; exit 1; fi
           test -f Payload/VintRadar.app/Assets.car || { echo "::error::Assets.car missing"; exit 1; }
@@ -76,7 +81,7 @@ jobs:
           plutil -p Payload/VintRadar.app/Info.plist
           du -sh Payload/VintRadar.app
           find Payload/VintRadar.app -maxdepth 2 -type f -print | sort
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="latest"; fi
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && -n "${{ inputs.version }}" ]]; then VERSION="${{ inputs.version }}"; elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="latest"; fi
           IPA="VintRadar-${VERSION}-unsigned.ipa"
           /usr/bin/zip -qry "$IPA" Payload
           test -s "$IPA"
@@ -104,16 +109,18 @@ jobs:
           retention-days: 30
 
       - name: GitHub Release
-        if: startsWith(github.ref, 'refs/tags/')
+        if: (github.event_name == 'workflow_dispatch' && inputs.version != '') || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: VintRadar ${{ github.ref_name }}
+          name: VintRadar v${{ inputs.version || github.ref_name }}
+          tag_name: v${{ inputs.version || github.ref_name }}
+          target_commitish: ${{ github.sha }}
           body_path: ios/release-notes.md
           files: ios/${{ env.IPA }}
           fail_on_unmatched_files: true
 
       - name: Continuous latest pre-release
-        if: github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:
           GH_TOKEN: ${{ github.token }}
         working-directory: ios
