@@ -1,1 +1,268 @@
-sed: can't read github/workflows/ios.yml: No such file or directory
+name: iOS IPA
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version à publier, par ex. 0.1.0"
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Diagnose installed Xcodes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sw_vers
+          uname -m
+          ls -1d /Applications/Xcode*.app || true
+
+      - name: Select Xcode 26.6
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XCODE="/Applications/Xcode_26.6.app"
+          test -d "$XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun simctl list devices available
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            VERSION="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="latest"
+          fi
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate opaque app icon
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install librsvg
+          SOURCE="VintRadar/Resources/AppIcon.svg"
+          ICON="VintRadar/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          test -f "$SOURCE"
+          mkdir -p "$(dirname "$ICON")"
+          rsvg-convert -w 1024 -h 1024 "$SOURCE" -o "$ICON"
+
+          if [[ "$(sips -g hasAlpha "$ICON" | awk '/hasAlpha/ {print $2}')" == "yes" ]]; then
+            sips -s format jpeg "$ICON" --out "$RUNNER_TEMP/AppIcon.jpg"
+            sips -s format png "$RUNNER_TEMP/AppIcon.jpg" --out "$ICON"
+          fi
+
+          WIDTH="$(sips -g pixelWidth "$ICON" | awk '/pixelWidth/ {print $2}')"
+          HEIGHT="$(sips -g pixelHeight "$ICON" | awk '/pixelHeight/ {print $2}')"
+          HAS_ALPHA="$(sips -g hasAlpha "$ICON" | awk '/hasAlpha/ {print $2}')"
+          echo "Generated app icon: ${WIDTH}x${HEIGHT}, hasAlpha=${HAS_ALPHA}"
+          test "$WIDTH" = "1024"
+          test "$HEIGHT" = "1024"
+          test "$HAS_ALPHA" = "no"
+
+      - name: Generate project
+        working-directory: ios
+        run: xcodegen generate
+
+      - name: Inventory Swift sources
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          report_sources() {
+            local label="$1"
+            local path="$2"
+            local count
+            local lines
+            count="$(find "$path" -type f -name '*.swift' 2>/dev/null | wc -l | tr -d ' ')"
+            lines="$(find "$path" -type f -name '*.swift' -print0 2>/dev/null | xargs -0 awk 'END { print NR + 0 }')"
+            echo "${label}: ${count} Swift files, ${lines} lines"
+          }
+
+          report_sources "TOTAL ios/VintRadar" "VintRadar"
+          for folder in App DesignSystem Models Services; do
+            report_sources "$folder" "VintRadar/$folder"
+          done
+          for feature in VintRadar/Features/*; do
+            test -d "$feature" || continue
+            report_sources "Features/$(basename "$feature")" "$feature"
+          done
+          echo "Repository Swift files:"
+          find VintRadar -type f -name '*.swift' -print | sort
+
+      - name: Run Swift tests
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIMULATOR_UDID="$('/usr/bin/python3' - <<'PY'
+          import json
+          import re
+          import subprocess
+
+          devices = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "-j"],
+                  text=True,
+              )
+          )["devices"]
+
+          def runtime_version(runtime):
+              match = re.search(r"iOS-(\d+(?:-\d+)*)$", runtime)
+              return tuple(map(int, match.group(1).split("-"))) if match else ()
+
+          for runtime in sorted(devices, key=runtime_version, reverse=True):
+              if "SimRuntime.iOS-" not in runtime:
+                  continue
+              for device in devices[runtime]:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("No available iPhone simulator found")
+          PY
+          )"
+          echo "Using iPhone simulator $SIMULATOR_UDID"
+          xcodebuild test \
+            -project VintRadar.xcodeproj \
+            -scheme VintRadar \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath build-tests \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Build unsigned app
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf build Payload *.ipa
+          xcodebuild build \
+            -project VintRadar.xcodeproj \
+            -scheme VintRadar \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO 2>&1 | tee ios-build.log
+
+      - name: Package and verify unsigned IPA
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP="build/Build/Products/Release-iphoneos/VintRadar.app"
+          test -d "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          BIN="Payload/VintRadar.app/VintRadar"
+          file "$BIN"
+          FILE_INFO="$(file "$BIN")"
+          echo "$FILE_INFO" | grep -Eq 'arm64|Mach-O 64-bit'
+          if echo "$FILE_INFO" | grep -Eqi 'x86_64|simulator'; then echo "::error::Simulator binary found"; exit 1; fi
+          test -f Payload/VintRadar.app/Assets.car || { echo "::error::Assets.car missing"; exit 1; }
+          ICONS="$(find Payload/VintRadar.app -maxdepth 1 -type f \( -iname '*AppIcon*.png' -o -iname '*Icon*.png' \) -print)"
+          test -n "$ICONS" || { echo "::error::Compiled app icon missing"; exit 1; }
+          echo "$ICONS"
+          echo "Binary size: $(stat -f '%z bytes' "$BIN")"
+          ls -lh "$BIN"
+          size -m "$BIN"
+
+          SWIFT_FILE_LIST="$(grep -oE '/[^[:space:]]+/VintRadar\.SwiftFileList' ios-build.log | tail -1)"
+          test -n "$SWIFT_FILE_LIST"
+          test -f "$SWIFT_FILE_LIST"
+          sed 's#^.*/ios/##' "$SWIFT_FILE_LIST" | sort -u > compiled-sources.txt
+          find VintRadar -type f -name '*.swift' -print | sort -u > repository-sources.txt
+          echo "Swift files actually compiled by xcodebuild:"
+          cat compiled-sources.txt
+          MISSING="$(comm -23 repository-sources.txt compiled-sources.txt)"
+          if [[ -n "$MISSING" ]]; then
+            echo "::error::Swift files present but not compiled:"
+            echo "$MISSING"
+            exit 1
+          fi
+          echo "Compiled source coverage: $(wc -l < compiled-sources.txt | tr -d ' ')/$(wc -l < repository-sources.txt | tr -d ' ') files"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/VintRadar.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' Payload/VintRadar.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' Payload/VintRadar.app/Info.plist
+          plutil -p Payload/VintRadar.app/Info.plist
+          du -sh Payload/VintRadar.app
+          find Payload/VintRadar.app -maxdepth 2 -type f -print | sort
+          IPA="VintRadar-${VERSION}-unsigned.ipa"
+          /usr/bin/zip -qry "$IPA" Payload
+          test -s "$IPA"
+          SHA="$(shasum -a 256 "$IPA" | awk '{print $1}')"
+          SIZE="$(du -h "$IPA" | awk '{print $1}')"
+          XCODE="$(xcodebuild -version | tr '\n' ' ')"
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          MIN_IOS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' Payload/VintRadar.app/Info.plist)"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "Version: $VERSION" > release-notes.md
+          echo "Commit: $GITHUB_SHA" >> release-notes.md
+          echo "Xcode: $XCODE" >> release-notes.md
+          echo "SDK iOS: $SDK" >> release-notes.md
+          echo "iOS minimum: $MIN_IOS" >> release-notes.md
+          echo "Taille IPA: $SIZE" >> release-notes.md
+          echo "SHA-256: $SHA" >> release-notes.md
+          ls -lh "$IPA"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VintRadar-unsigned
+          path: ios/${{ env.IPA }}
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: GitHub Release
+        if: (github.event_name == 'workflow_dispatch' && inputs.version != '') || startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          name: VintRadar v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body_path: ios/release-notes.md
+          files: ios/${{ env.IPA }}
+          fail_on_unmatched_files: true
+
+      - name: Continuous latest pre-release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gh release delete latest --yes --cleanup-tag || true
+          git tag -f latest "$GITHUB_SHA"
+          git push origin refs/tags/latest --force
+          gh release create latest "$IPA" --title "VintRadar latest" --notes-file release-notes.md --prerelease --target "$GITHUB_SHA"
