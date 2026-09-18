@@ -2,6 +2,8 @@ name: iOS IPA
 
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
     paths:
       - "ios/**"
       - ".github/workflows/ios.yml"
@@ -78,7 +80,7 @@ jobs:
         working-directory: ios
         run: |
           set -o pipefail
-          rm -rf build Payload VintRadar-unsigned.ipa
+          rm -rf build Payload *.ipa
           xcodebuild build             -project VintRadar.xcodeproj             -scheme VintRadar             -configuration Release             -sdk iphoneos             -destination "generic/platform=iOS"             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO
 
       - name: Package and verify unsigned IPA
@@ -90,16 +92,45 @@ jobs:
           test -d "$APP"
           mkdir -p Payload
           cp -R "$APP" Payload/
-          /usr/bin/zip -qry VintRadar-unsigned.ipa Payload
-          test -s VintRadar-unsigned.ipa
-          /usr/bin/unzip -l VintRadar-unsigned.ipa | grep "Payload/VintRadar.app/"
-          ls -lh VintRadar-unsigned.ipa
+          BIN="Payload/VintRadar.app/VintRadar"
+          file "$BIN"
+          FILE_INFO="$(file "$BIN")
+          echo "$FILE_INFO" | grep -Eq 'arm64|Mach-O 64-bit'
+          if echo "$FILE_INFO" | grep -Eqi 'x86_64|simulator'; then echo "::error::Simulator binary found"; exit 1; fi
+          test -f Payload/VintRadar.app/Assets.car || { echo "::error::Assets.car missing"; exit 1; }
+          ICONS="$(find Payload/VintRadar.app -maxdepth 1 -type f \( -iname '*AppIcon*.png' -o -iname '*Icon*.png' \) -print)"
+          test -n "$ICONS" || { echo "::error::Compiled app icon missing"; exit 1; }
+          echo "$ICONS"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/VintRadar.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' Payload/VintRadar.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' Payload/VintRadar.app/Info.plist
+          plutil -p Payload/VintRadar.app/Info.plist
+          du -sh Payload/VintRadar.app
+          find Payload/VintRadar.app -maxdepth 2 -type f -print | sort
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="latest"; fi
+          IPA="VintRadar-${VERSION}-unsigned.ipa"
+          /usr/bin/zip -qry "$IPA" Payload
+          test -s "$IPA"
+          SHA="$(shasum -a 256 "$IPA" | awk '{print $1}')"
+          SIZE="$(du -h "$IPA" | awk '{print $1}')"
+          XCODE="$(xcodebuild -version | tr '\n' ' ')"
+          SDK="$(xcrun --sdk iphoneos --show-sdk-version)"
+          MIN_IOS="$(/usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' Payload/VintRadar.app/Info.plist)"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+          echo "Version: $VERSION" > release-notes.md
+          echo "Commit: $GITHUB_SHA" >> release-notes.md
+          echo "Xcode: $XCODE" >> release-notes.md
+          echo "SDK iOS: $SDK" >> release-notes.md
+          echo "iOS minimum: $MIN_IOS" >> release-notes.md
+          echo "Taille IPA: $SIZE" >> release-notes.md
+          echo "SHA-256: $SHA" >> release-notes.md
+          ls -lh "$IPA"
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
           name: VintRadar-unsigned
-          path: ios/VintRadar-unsigned.ipa
+          path: ios/${{ env.IPA }}
           if-no-files-found: error
           retention-days: 30
 
@@ -107,5 +138,20 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ios/VintRadar-unsigned.ipa
+          name: VintRadar ${{ github.ref_name }}
+          body_path: ios/release-notes.md
+          files: ios/${{ env.IPA }}
           fail_on_unmatched_files: true
+
+      - name: Continuous latest pre-release
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euxo pipefail
+          gh release delete latest --yes --cleanup-tag || true
+          git tag -f latest "$GITHUB_SHA"
+          git push origin refs/tags/latest --force
+          gh release create latest "$IPA" --title "VintRadar latest" --notes-file release-notes.md --prerelease --target "$GITHUB_SHA"
