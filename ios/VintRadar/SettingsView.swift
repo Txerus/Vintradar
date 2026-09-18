@@ -1,2 +1,23 @@
 import SwiftUI
-struct SettingsView:View {@State private var url=UserDefaults.standard.string(forKey:"serverURL") ?? "";@State private var token=UserDefaults.standard.string(forKey:"apiToken") ?? "";var body:some View{NavigationStack{Form{Section("Serveur"){TextField("URL",text:$url);SecureField("Token",text:$token);Button("Enregistrer"){UserDefaults.standard.set(url,forKey:"serverURL");UserDefaults.standard.set(token,forKey:"apiToken")}}Section("À propos"){LabeledContent("Version","0.1.0");Text("VintRadar est une application personnelle non affiliée à Vinted.")}}.navigationTitle("Réglages")}}}
+struct SettingsView: View {
+    @State private var url = UserDefaults.standard.string(forKey: "serverURL") ?? ""
+    @State private var token = UserDefaults.standard.string(forKey: "apiToken") ?? ""
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Serveur") {
+                    TextField("URL", text: $url)
+                    SecureField("Token", text: $token)
+                    Button("Enregistrer") {
+                        UserDefaults.standard.set(url, forKey: "serverURL")
+                        UserDefaults.standard.set(token, forKey: "apiToken")
+                    }
+                }
+                Section("À propos") {
+                    LabeledContent("Version", value: "0.1.0")
+                    Text("VintRadar est une application personnelle non affiliée à Vinted.")
+                }
+            }.navigationTitle("Réglages")
+        }
+    }
+}
