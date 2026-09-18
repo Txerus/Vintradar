@@ -16,6 +16,8 @@ services:
     env_file: .env
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000
     ports: ["8000:8000"]
+    volumes:
+      - ./backend/tests/fixtures/vinted:/app/tests/fixtures/vinted
     depends_on:
       postgres: {condition: service_healthy}
     healthcheck:
