@@ -64,6 +64,31 @@ jobs:
       - name: Install XcodeGen
         run: brew install xcodegen
 
+      - name: Generate opaque app icon
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install librsvg
+          SOURCE="VintRadar/Resources/AppIcon.svg"
+          ICON="VintRadar/Assets.xcassets/AppIcon.appiconset/AppIcon.png"
+          test -f "$SOURCE"
+          mkdir -p "$(dirname "$ICON")"
+          rsvg-convert -w 1024 -h 1024 "$SOURCE" -o "$ICON"
+
+          if [[ "$(sips -g hasAlpha "$ICON" | awk '/hasAlpha/ {print $2}')" == "yes" ]]; then
+            sips -s format jpeg "$ICON" --out "$RUNNER_TEMP/AppIcon.jpg"
+            sips -s format png "$RUNNER_TEMP/AppIcon.jpg" --out "$ICON"
+          fi
+
+          WIDTH="$(sips -g pixelWidth "$ICON" | awk '/pixelWidth/ {print $2}')"
+          HEIGHT="$(sips -g pixelHeight "$ICON" | awk '/pixelHeight/ {print $2}')"
+          HAS_ALPHA="$(sips -g hasAlpha "$ICON" | awk '/hasAlpha/ {print $2}')"
+          echo "Generated app icon: ${WIDTH}x${HEIGHT}, hasAlpha=${HAS_ALPHA}"
+          test "$WIDTH" = "1024"
+          test "$HEIGHT" = "1024"
+          test "$HAS_ALPHA" = "no"
+
       - name: Generate project
         working-directory: ios
         run: xcodegen generate

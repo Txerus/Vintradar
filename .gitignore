@@ -7,3 +7,4 @@ __pycache__/
 DerivedData/
 build/
 *.xcodeproj
+ios/VintRadar/Assets.xcassets/AppIcon.appiconset/AppIcon.png
