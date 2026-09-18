@@ -8,3 +8,6 @@ test=["pytest>=8.4","pytest-asyncio>=1.1"]
 [tool.pytest.ini_options]
 asyncio_mode="auto"
 testpaths=["tests"]
+[tool.setuptools.packages.find]
+include=["app*"]
+exclude=["migrations*"]

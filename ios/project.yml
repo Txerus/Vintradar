@@ -23,7 +23,7 @@ targets:
       - VintRadar/Assets.xcassets
     settings:
       base:
-        TARGETED_DEVICE_FAMILY: "1"
+        TARGETED_DEVICE_FAMILY: "1,2"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     scheme:
       testTargets: [VintRadarTests]

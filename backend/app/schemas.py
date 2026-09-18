@@ -11,5 +11,11 @@ class ListingOut(BaseModel):
     model_config=ConfigDict(from_attributes=True)
 class FlagIn(BaseModel):
     value:bool
+class FlagOut(BaseModel):
+    listing_id:int; favorite:bool=False; seen:bool=False; hidden:bool=False
+    model_config=ConfigDict(from_attributes=True)
+class SnapshotOut(BaseModel):
+    id:int; listing_id:int; price:float; status:str; observed_at:datetime
+    model_config=ConfigDict(from_attributes=True)
 class DashboardOut(BaseModel):
     alerts:int; listings:int; active:int; last_scan_at:datetime|None

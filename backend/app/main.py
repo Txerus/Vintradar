@@ -3,8 +3,8 @@ from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.db import session
-from app.models import Alert, Listing, UserFlag
-from app.schemas import AlertIn, AlertOut, ListingOut, FlagIn, DashboardOut
+from app.models import Alert, Listing, ListingSnapshot, UserFlag
+from app.schemas import AlertIn, AlertOut, ListingOut, FlagIn, FlagOut, SnapshotOut, DashboardOut
 from app.security import require_token
 app=FastAPI(title="VintRadar API",version="0.1.0")
 @app.get("/health")
@@ -46,6 +46,12 @@ async def listing(lid:int,db:AsyncSession=Depends(session)):
     x=await db.get(Listing,lid)
     if not x:raise HTTPException(404)
     return x
+@app.get("/listings/{lid}/history",response_model=list[SnapshotOut],dependencies=[Depends(require_token)])
+async def listing_history(lid:int,db:AsyncSession=Depends(session)):
+    return (await db.scalars(select(ListingSnapshot).where(ListingSnapshot.listing_id==lid).order_by(ListingSnapshot.observed_at))).all()
+@app.get("/flags",response_model=list[FlagOut],dependencies=[Depends(require_token)])
+async def flags(db:AsyncSession=Depends(session)):
+    return (await db.scalars(select(UserFlag).order_by(UserFlag.listing_id))).all()
 async def set_flag(lid:int,key:str,body:FlagIn,db:AsyncSession):
     f=await db.get(UserFlag,lid)
     if not f:f=UserFlag(listing_id=lid);db.add(f)
