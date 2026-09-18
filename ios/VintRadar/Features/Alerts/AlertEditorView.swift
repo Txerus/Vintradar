@@ -37,8 +37,8 @@ struct AlertEditorView: View {
         _name = State(initialValue: draft.name)
         _includeTerms = State(initialValue: draft.includeTerms.joined(separator: ", "))
         _excludeTerms = State(initialValue: draft.excludeTerms.joined(separator: ", "))
-        _minimumPrice = State(initialValue: draft.minPrice.map(String.init) ?? "")
-        _maximumPrice = State(initialValue: draft.maxPrice.map(String.init) ?? "")
+        _minimumPrice = State(initialValue: draft.minPrice.map { String($0) } ?? "")
+        _maximumPrice = State(initialValue: draft.maxPrice.map { String($0) } ?? "")
         _scanMinutes = State(initialValue: draft.scanMinutes)
         _threshold = State(initialValue: draft.notifyThreshold)
     }
@@ -105,4 +105,3 @@ struct AlertEditorView: View {
         if await model.saveAlert(draft, editing: mode.alert) { dismiss() }
     }
 }
-
