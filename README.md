@@ -32,7 +32,7 @@ Le worker utilise un débit global prudent (`SCAN_GLOBAL_RPM=4` par défaut), un
 
 ## iOS et GitHub Actions
 
-La cible de déploiement est **iOS 26**. La CI utilise explicitement le runner GitHub **`xcode-27`** et sélectionne **`/Applications/Xcode_27.0.app/Contents/Developer`** avec `xcode-select`. Au 18 septembre 2026, l'image GitHub Xcode 27 fournit le SDK iOS 27.0. Le projet reste ciblé iOS 26 afin d'être une version majeure sous le SDK. L'app fonctionne sur iOS 27. GitHub documente actuellement `xcode-27` comme runner arm64 en public preview.
+La cible de déploiement est **iOS 26**. La CI utilise explicitement le runner GitHub **`macos-latest`** et sélectionne explicitement **`/Applications/Xcode_26.6.app/Contents/Developer`** avec `xcode-select`. Au 18 septembre 2026, `macos-latest` pointe sur l'image macOS 26. Xcode 26.6 y est installé explicitement. Le workflow affiche les Xcode présents et le SDK sélectionné à chaque run. L'app ciblée iOS 26 fonctionne sur iOS 27.
 
 Le workflow :
 1. génère `VintRadar.xcodeproj` depuis `ios/project.yml`;
