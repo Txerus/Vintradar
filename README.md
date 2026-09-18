@@ -40,8 +40,9 @@ Le workflow :
 3. compile avec `CODE_SIGNING_ALLOWED=NO`;
 4. crée `Payload/VintRadar.app`;
 5. produit `VintRadar-unsigned.ipa`;
-6. publie l'IPA comme artifact à chaque push;
-7. sur un tag, joint l'IPA à la GitHub Release.
+6. publie l’IPA comme artifact à chaque push;
+7. sur `main`, met à jour la pré-release `latest`;
+8. sur un tag `vX.Y.Z`, publie `VintRadar-X.Y.Z-unsigned.ipa` dans la Release correspondante.
 
 Aucun Mac local n'est nécessaire.
 
@@ -99,3 +100,21 @@ L'interface `PriceSource` accueille Vinted interne, BrickLink, PriceCharting, eB
 ## Secrets GitHub
 
 Aucun secret Apple n'est nécessaire pour fabriquer l'IPA non signée. Le workflow de release utilise automatiquement `GITHUB_TOKEN`. Les secrets applicatifs restent uniquement dans le `.env` du serveur et ne doivent jamais être commités.
+
+## Vérification Vinted en direct
+
+Depuis la racine du dépôt :
+
+```bash
+docker compose run --rm api python scripts/check_vinted.py "lego"
+```
+
+Le script ouvre une session anonyme, affiche l’état du cookie, le code HTTP et la première annonce brute, compare les clés avec celles utilisées par le parser et sauvegarde le JSON dans `backend/tests/fixtures/vinted/`.
+
+## Télécharger et installer la dernière IPA
+
+La pré-release continue est disponible sur la page GitHub Releases : `https://github.com/Txerus/Vintradar/releases/tag/latest`. Son asset est `VintRadar-latest-unsigned.ipa`. Les versions stables utilisent `VintRadar-X.Y.Z-unsigned.ipa`.
+
+Sur iPhone : ouvrir la Release dans Safari, télécharger l’IPA, l’ouvrir/partager vers SideStore, installer VintRadar puis le re-signer selon la cadence imposée par le compte Apple gratuit. Au premier lancement, renseigner l’URL Tailscale du backend et le token API.
+
+La procédure de recette complète est dans `docs/installation.md`.
