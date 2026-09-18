@@ -1,32 +1,109 @@
 name: iOS IPA
+
 on:
   push:
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios.yml"
   workflow_dispatch:
+
+permissions:
+  contents: write
+
 jobs:
   ios:
-    runs-on: xcode-27
+    runs-on: macos-26
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - name: Select Xcode 27
-        run: sudo xcode-select -s /Applications/Xcode_27.0.app/Contents/Developer
-      - run: xcodebuild -version && xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Diagnose installed Xcodes
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sw_vers
+          uname -m
+          ls -1d /Applications/Xcode*.app || true
+
+      - name: Select Xcode 26.6
+        shell: bash
+        run: |
+          set -euxo pipefail
+          XCODE="/Applications/Xcode_26.6.app"
+          test -d "$XCODE"
+          sudo xcode-select -s "$XCODE/Contents/Developer"
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          xcrun simctl list devices available
+
       - name: Install XcodeGen
         run: brew install xcodegen
+
       - name: Generate project
         working-directory: ios
         run: xcodegen generate
+
+      - name: Select available iPhone simulator
+        id: simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          UDID="$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          data=json.load(sys.stdin)
+          candidates=[]
+          for runtime, devices in data["devices"].items():
+              if "iOS" not in runtime:
+                  continue
+              for d in devices:
+                  if d.get("isAvailable") and d.get("name","").startswith("iPhone"):
+                      candidates.append((runtime,d["name"],d["udid"]))
+          if not candidates:
+              raise SystemExit("No available iPhone simulator")
+          candidates.sort(reverse=True)
+          print(candidates[0][2])
+          ')"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "Selected simulator: $UDID"
+
       - name: Swift tests
         working-directory: ios
-        run: xcodebuild test -project VintRadar.xcodeproj -scheme VintRadar -destination 'platform=iOS Simulator,name=iPhone 18 Pro,OS=27.0' CODE_SIGNING_ALLOWED=NO
+        run: |
+          set -o pipefail
+          xcodebuild test             -project VintRadar.xcodeproj             -scheme VintRadar             -destination "platform=iOS Simulator,id=${{ steps.simulator.outputs.udid }}"             CODE_SIGNING_ALLOWED=NO
+
       - name: Build unsigned app
         working-directory: ios
-        run: xcodebuild build -project VintRadar.xcodeproj -scheme VintRadar -configuration Release -sdk iphoneos -derivedDataPath build CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
-      - name: Package unsigned IPA
+        run: |
+          set -o pipefail
+          rm -rf build Payload VintRadar-unsigned.ipa
+          xcodebuild build             -project VintRadar.xcodeproj             -scheme VintRadar             -configuration Release             -sdk iphoneos             -destination "generic/platform=iOS"             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO             CODE_SIGNING_REQUIRED=NO
+
+      - name: Package and verify unsigned IPA
         working-directory: ios
-        run: mkdir -p Payload && cp -R build/Build/Products/Release-iphoneos/VintRadar.app Payload/ && zip -qry VintRadar-unsigned.ipa Payload
-      - uses: actions/upload-artifact@v4
-        with: {name: VintRadar-unsigned, path: ios/VintRadar-unsigned.ipa}
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP="build/Build/Products/Release-iphoneos/VintRadar.app"
+          test -d "$APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          /usr/bin/zip -qry VintRadar-unsigned.ipa Payload
+          test -s VintRadar-unsigned.ipa
+          /usr/bin/unzip -l VintRadar-unsigned.ipa | grep "Payload/VintRadar.app/"
+          ls -lh VintRadar-unsigned.ipa
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VintRadar-unsigned
+          path: ios/VintRadar-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 30
+
       - name: GitHub Release
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
-        with: {files: ios/VintRadar-unsigned.ipa}
+        with:
+          files: ios/VintRadar-unsigned.ipa
+          fail_on_unmatched_files: true
