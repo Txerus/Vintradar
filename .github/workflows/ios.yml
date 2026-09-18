@@ -43,12 +43,70 @@ jobs:
           xcrun --sdk iphoneos --show-sdk-version
           xcrun simctl list devices available
 
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
+            VERSION="$INPUT_VERSION"
+          elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="latest"
+          fi
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
       - name: Install XcodeGen
         run: brew install xcodegen
 
       - name: Generate project
         working-directory: ios
         run: xcodegen generate
+
+      - name: Run Swift tests
+        working-directory: ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          SIMULATOR_UDID="$('/usr/bin/python3' - <<'PY'
+          import json
+          import re
+          import subprocess
+
+          devices = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "-j"],
+                  text=True,
+              )
+          )["devices"]
+
+          def runtime_version(runtime):
+              match = re.search(r"iOS-(\d+(?:-\d+)*)$", runtime)
+              return tuple(map(int, match.group(1).split("-"))) if match else ()
+
+          for runtime in sorted(devices, key=runtime_version, reverse=True):
+              if "SimRuntime.iOS-" not in runtime:
+                  continue
+              for device in devices[runtime]:
+                  if device.get("isAvailable") and device["name"].startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit
+          raise SystemExit("No available iPhone simulator found")
+          PY
+          )"
+          echo "Using iPhone simulator $SIMULATOR_UDID"
+          xcodebuild test \
+            -project VintRadar.xcodeproj \
+            -scheme VintRadar \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$SIMULATOR_UDID" \
+            -derivedDataPath build-tests \
+            CODE_SIGNING_ALLOWED=NO
 
       - name: Build unsigned app
         working-directory: ios
@@ -81,7 +139,6 @@ jobs:
           plutil -p Payload/VintRadar.app/Info.plist
           du -sh Payload/VintRadar.app
           find Payload/VintRadar.app -maxdepth 2 -type f -print | sort
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" && -n "${{ inputs.version }}" ]]; then VERSION="${{ inputs.version }}"; elif [[ "$GITHUB_REF" == refs/tags/v* ]]; then VERSION="${GITHUB_REF_NAME#v}"; else VERSION="latest"; fi
           IPA="VintRadar-${VERSION}-unsigned.ipa"
           /usr/bin/zip -qry "$IPA" Payload
           test -s "$IPA"
@@ -112,8 +169,8 @@ jobs:
         if: (github.event_name == 'workflow_dispatch' && inputs.version != '') || startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
-          name: VintRadar v${{ inputs.version || github.ref_name }}
-          tag_name: v${{ inputs.version || github.ref_name }}
+          name: VintRadar v${{ steps.version.outputs.version }}
+          tag_name: v${{ steps.version.outputs.version }}
           target_commitish: ${{ github.sha }}
           body_path: ios/release-notes.md
           files: ios/${{ env.IPA }}
