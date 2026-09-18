@@ -65,6 +65,8 @@ jobs:
           ')"
           echo "udid=$UDID" >> "$GITHUB_OUTPUT"
           echo "Selected simulator: $UDID"
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
 
       - name: Swift tests
         working-directory: ios
