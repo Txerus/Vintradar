@@ -16,14 +16,14 @@ def item(identifier: int, price: float, buyer_fee: float = 0, shipping: float = 
         "price": {"amount": str(price), "currency_code": "EUR"},
         "service_fee_amount": {"amount": str(buyer_fee)},
         "shipping_price": {"amount": str(shipping)},
-        "url": f"https://www.vinted.fr/items/{identifier}",
+        "url": f"/items/{identifier}-lego-technic-42146",
         "photo": {"url": f"https://images.example/{identifier}.jpg"},
         "photos": [
             {"url": f"https://images.example/{identifier}.jpg"},
             {"url": f"https://images.example/{identifier}-2.jpg"},
         ],
         "user": {"login": "vendeur_test", "feedback_reputation": 4.9, "feedback_count": 27},
-        "status": "Très bon état",
+        "item_box": {"second_line": "Taille unique · Très bon état"},
     }
 
 
@@ -86,6 +86,9 @@ async def test_first_scan_seeds_without_notifications_then_scores_new_items(tmp_
         assert listing.seller_name == "vendeur_test"
         assert listing.seller_rating == 4.9
         assert listing.seller_reviews_count == 27
+        assert listing.url == "https://www.vinted.fr/items/5-lego-technic-42146"
+        assert listing.size == "Taille unique"
+        assert listing.condition == "Très bon état"
         assert statistic.sample_count == 5
         assert stored_alert.last_scan_at is not None
     await engine.dispose()

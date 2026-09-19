@@ -4,6 +4,7 @@ from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
 from statistics import median
 from typing import Any
+from urllib.parse import urljoin
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -125,6 +126,24 @@ def _text_attribute(item: dict, *keys: str) -> str | None:
     return None
 
 
+def _size_and_condition(item: dict) -> tuple[str | None, str | None]:
+    size = _text_attribute(item, "size", "size_title")
+    condition = _text_attribute(item, "status", "condition")
+    item_box = item.get("item_box")
+    if isinstance(item_box, dict):
+        parts = [part.strip() for part in str(item_box.get("second_line") or "").split("·") if part.strip()]
+        if not size and parts:
+            size = parts[0]
+        if not condition and len(parts) > 1:
+            condition = parts[-1]
+    return size, condition
+
+
+def _absolute_url(value: Any, external_id: str) -> str:
+    raw = str(value or f"/items/{external_id}")
+    return urljoin(settings.vinted_domain.rstrip("/") + "/", raw)
+
+
 def _apply_score(listing: Listing, score: Score | None) -> None:
     listing.score_label = score.label if score else None
     listing.score_percentile = score.percentile if score else None
@@ -197,6 +216,7 @@ async def scan(
             score = robust_score(price + buyer_fee + shipping, comparables)
             seller_name, seller_rating, seller_reviews = _seller(item)
             photos = _photo_urls(item)
+            size, condition = _size_and_condition(item)
 
             if listing is None:
                 listing = Listing(
@@ -208,14 +228,14 @@ async def scan(
                     buyer_fee=buyer_fee,
                     shipping_estimate=shipping,
                     currency=_currency(item),
-                    url=str(item.get("url") or f"{settings.vinted_domain}/items/{external_id}"),
+                    url=_absolute_url(item.get("url"), external_id),
                     image_url=_photo_url(item),
                     image_urls=photos,
                     seller_name=seller_name,
                     seller_rating=seller_rating,
                     seller_reviews_count=seller_reviews,
-                    condition=_text_attribute(item, "status", "condition"),
-                    size=_text_attribute(item, "size", "size_title"),
+                    condition=condition,
+                    size=size,
                     status=ListingStatus.ACTIVE,
                 )
                 _apply_score(listing, score)
@@ -246,14 +266,14 @@ async def scan(
                 )
                 listing.title = str(item.get("title") or listing.title)
                 listing.description = str(item.get("description") or listing.description)
-                listing.url = str(item.get("url") or listing.url)
+                listing.url = _absolute_url(item.get("url") or listing.url, external_id)
                 listing.image_url = _photo_url(item) or listing.image_url
                 listing.image_urls = photos or listing.image_urls
                 listing.seller_name = seller_name or listing.seller_name
                 listing.seller_rating = seller_rating if seller_rating is not None else listing.seller_rating
                 listing.seller_reviews_count = seller_reviews if seller_reviews is not None else listing.seller_reviews_count
-                listing.condition = _text_attribute(item, "status", "condition") or listing.condition
-                listing.size = _text_attribute(item, "size", "size_title") or listing.size
+                listing.condition = condition or listing.condition
+                listing.size = size or listing.size
                 listing.currency = _currency(item)
                 listing.price = price
                 listing.buyer_fee = buyer_fee
