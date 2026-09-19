@@ -142,7 +142,17 @@ final class AppModel {
     }
 
     func score(for item: ListingDTO) -> DealScore {
-        DealScore.calculate(price: item.total, comparablePrices: comparablePrices(for: item))
+        if let rawLabel = item.scoreLabel,
+           let label = DealLabel(rawValue: rawLabel) {
+            return DealScore(
+                label: label,
+                percentile: item.scorePercentile,
+                median: item.scoreMedian,
+                sampleCount: item.scoreSampleCount ?? 0,
+                serverConfidence: item.scoreConfidence
+            )
+        }
+        return DealScore.calculate(price: item.total, comparablePrices: comparablePrices(for: item))
     }
 
     func history(for item: ListingDTO) async -> [ListingSnapshotDTO] {
@@ -186,4 +196,3 @@ final class AppModel {
 
 private struct EmptyBody: Codable, Sendable {}
 private struct APIAcknowledgement: Codable, Sendable { let ok: Bool }
-

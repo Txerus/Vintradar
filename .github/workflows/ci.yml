@@ -3,16 +3,40 @@ on: [push, workflow_dispatch]
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: vintradar_test
+          POSTGRES_USER: vintradar
+          POSTGRES_PASSWORD: test-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U vintradar -d vintradar_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      DATABASE_URL: postgresql+asyncpg://vintradar:test-password@localhost:5432/vintradar_test
     defaults: {run: {working-directory: backend}}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: pip install -e '.[test]'
-      - run: pytest -q
+      - name: Run migrations on PostgreSQL
+        run: alembic upgrade head
+      - name: Verify PostgreSQL schema
+        run: python scripts/check_schema.py
+      - name: Check migration/model parity
+        run: alembic check
+      - name: Run backend tests
+        run: pytest -q
   docker:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
       - run: docker build -t vintradar:test backend
+      - run: docker run --rm vintradar:test python -c "import app; print('PYTHONPATH import verified')"

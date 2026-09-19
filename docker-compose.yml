@@ -19,7 +19,7 @@ services:
     volumes:
       - ./backend/tests/fixtures/vinted:/app/tests/fixtures/vinted
     depends_on:
-      postgres: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
     healthcheck:
       test: ["CMD","python","-c","import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 15s
@@ -29,6 +29,12 @@ services:
     build: ./backend
     env_file: .env
     command: python -m app.worker
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+  migrate:
+    build: ./backend
+    env_file: .env
+    command: alembic upgrade head
     depends_on:
       postgres: {condition: service_healthy}
   ntfy:

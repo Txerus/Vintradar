@@ -8,6 +8,13 @@ struct ListingDetailView: View {
 
     private var score: DealScore { model.score(for: item) }
     private var comparablePrices: [Double] { model.comparablePrices(for: item).sorted() }
+    private var galleryURLs: [URL] {
+        let storedImages = item.imageUrls ?? []
+        let values = storedImages.isEmpty ? [item.imageUrl].compactMap { $0 } : storedImages
+        return values.compactMap(URL.init).reduce(into: []) { result, url in
+            if !result.contains(url) { result.append(url) }
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -49,11 +56,22 @@ struct ListingDetailView: View {
     }
 
     private var heroImage: some View {
-        AsyncImage(url: item.imageUrl.flatMap(URL.init)) { phase in
-            switch phase {
-            case .success(let image): image.resizable().scaledToFit()
-            case .failure: ContentUnavailableView("Image indisponible", systemImage: "photo")
-            default: ProgressView().frame(maxWidth: .infinity, minHeight: 280)
+        Group {
+            if galleryURLs.isEmpty {
+                ContentUnavailableView("Image indisponible", systemImage: "photo")
+            } else {
+                TabView {
+                    ForEach(galleryURLs, id: \.absoluteString) { url in
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image): image.resizable().scaledToFit()
+                            case .failure: ContentUnavailableView("Image indisponible", systemImage: "photo")
+                            default: ProgressView().frame(maxWidth: .infinity, minHeight: 280)
+                            }
+                        }
+                    }
+                }
+                .tabViewStyle(.page(indexDisplayMode: galleryURLs.count > 1 ? .automatic : .never))
             }
         }
         .frame(maxWidth: .infinity, minHeight: 280, maxHeight: 520)
@@ -157,9 +175,19 @@ struct ListingDetailView: View {
     private var sellerSection: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Vendeur").font(.headline)
-            Label("Les informations vendeur ne sont pas fournies par l’API actuelle.", systemImage: "person.crop.circle.badge.questionmark")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
+            if let sellerName = item.sellerName {
+                Label(sellerName, systemImage: "person.crop.circle.fill")
+                if let rating = item.sellerRating {
+                    LabeledContent("Évaluation", value: rating.formatted(.number.precision(.fractionLength(1))))
+                }
+                if let reviews = item.sellerReviewsCount {
+                    LabeledContent("Avis", value: "\(reviews)")
+                }
+            } else {
+                Label("Informations non fournies pour cette annonce.", systemImage: "person.crop.circle.badge.questionmark")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
         }
     }
 

@@ -23,8 +23,17 @@ struct DealScore: Hashable, Sendable {
     let percentile: Double?
     let median: Double?
     let sampleCount: Int
+    var serverConfidence: String? = nil
 
     var confidence: String {
+        if let serverConfidence {
+            switch serverConfidence {
+            case "HIGH": return "Élevée"
+            case "MEDIUM": return "Moyenne"
+            case "LOW": return "Faible"
+            default: break
+            }
+        }
         if sampleCount >= 30 { return "Élevée" }
         if sampleCount >= 10 { return "Moyenne" }
         return "Faible"
@@ -53,4 +62,3 @@ struct DealScore: Hashable, Sendable {
         return DealScore(label: label, percentile: percentile, median: median, sampleCount: sorted.count)
     }
 }
-

@@ -11,6 +11,8 @@ VintRadar est une application iOS personnelle et un backend auto-hébergé de ve
 
 Le serveur est conçu pour être joint via Tailscale et exige en plus un Bearer token. Les notifications sont envoyées à ntfy et peuvent ouvrir `vintradar://item/{id}`.
 
+L'état exact de chaque exigence, y compris les limites restantes, est tenu dans [`docs/spec-audit.md`](docs/spec-audit.md).
+
 ## Serveur
 
 1. Installer Docker et Docker Compose sur le serveur Linux.
@@ -18,7 +20,7 @@ Le serveur est conçu pour être joint via Tailscale et exige en plus un Bearer 
 3. Copier `.env.example` vers `.env`.
 4. Remplacer impérativement `POSTGRES_PASSWORD` et `VINTRADAR_API_TOKEN`.
 5. Adapter `NTFY_TOPIC`; `NTFY_TOKEN` est optionnel si l'instance ntfy n'impose pas d'authentification.
-6. Lancer `docker compose up -d --build`.
+6. Lancer `docker compose up -d --build`. Le service `migrate` applique Alembic avant que l'API et le worker puissent démarrer.
 7. Vérifier `http://ADRESSE-TAILSCALE:8000/health`.
 8. Installer/configurer l'app ntfy iOS sur le topic choisi.
 
@@ -28,7 +30,7 @@ Ollama est optionnel : `docker compose --profile ollama up -d`. Les identifiants
 
 OpenAPI est disponible sur `/docs`. Les routes métier demandent `Authorization: Bearer <VINTRADAR_API_TOKEN>`. `/health` reste public pour les healthchecks.
 
-Le worker utilise un débit global prudent (`SCAN_GLOBAL_RPM=4` par défaut), une session anonyme et un backoff sur 403/429. L'API Vinted utilisée étant interne et non contractuelle, son adaptation est isolée dans `backend/app/vinted.py`. VintRadar n'automatise ni achat, ni message, ni action sur un compte.
+Le worker utilise un débit global prudent (`SCAN_GLOBAL_RPM=4` par défaut), respecte la fréquence de chaque alerte, ouvre une session anonyme et applique un backoff sur 403/429. La recherche utilise `/svc-catalogue/items` puis se replie sur le JSON-LD de `/catalog`. L'API Vinted étant interne et non contractuelle, son adaptation est isolée dans `backend/app/vinted.py`. VintRadar n'automatise ni achat, ni message, ni action sur un compte.
 
 ## iOS et GitHub Actions
 
@@ -65,7 +67,7 @@ Au premier lancement, saisir :
 - l'URL FastAPI Tailscale, par exemple `http://100.x.y.z:8000`;
 - le même `VINTRADAR_API_TOKEN` que dans `.env`.
 
-L'app teste `/health`, enregistre la configuration localement puis charge le tableau de bord, les alertes et les annonces.
+L'app teste la route protégée `/auth/check`, enregistre la configuration localement puis charge le tableau de bord, les alertes et les annonces. Le cache hors ligne utilise SwiftData.
 
 ## Tests
 
@@ -91,11 +93,11 @@ Les tests iOS sont exécutés en CI, ce qui évite toute dépendance à Xcode lo
 
 Les annonces utilisent cinq statuts : `ACTIVE`, `SOLD_CONFIRMED`, `DISAPPEARED`, `DELETED`, `UNKNOWN`. Une disparition n'est jamais assimilée automatiquement à une vente confirmée.
 
-Le scoring robuste élimine les valeurs aberrantes par IQR puis classe le prix selon son percentile : DEAL <=20 %, GOOD <50 %, NORMAL <=75 %, EXPENSIVE >75 %. La confiance dépend du nombre de comparables.
+Le scoring robuste est calculé par le worker, stocké en base et renvoyé à l'app. Il élimine les valeurs aberrantes par IQR puis classe le coût disponible selon son percentile : DEAL <=20 %, GOOD <50 %, NORMAL <=75 %, EXPENSIVE >75 %. La confiance dépend du nombre de comparables. Le premier scan d'une alerte initialise la base sans notifier ; seules les annonces découvertes lors d'un scan ultérieur sont éligibles.
 
 ## Sources de prix
 
-L'interface `PriceSource` accueille Vinted interne, BrickLink, PriceCharting, eBay, Keepa et Back Market. Les connecteurs non configurés restent neutres et ne bloquent pas le backend. BrickLink requiert ses identifiants API dans `.env`.
+L'interface `PriceSource` réserve les intégrations BrickLink, PriceCharting, eBay, Keepa et Back Market. Ces connecteurs restent non opérationnels tant que leurs implémentations et identifiants propres ne sont pas fournis ; ils ne participent pas au score actuel. Le score opérationnel repose sur les annonces Vinted normalisées et persistées.
 
 ## Secrets GitHub
 

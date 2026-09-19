@@ -9,6 +9,8 @@ from app.security import require_token
 app=FastAPI(title="VintRadar API",version="0.1.0")
 @app.get("/health")
 async def health():return {"status":"ok"}
+@app.get("/auth/check",dependencies=[Depends(require_token)])
+async def auth_check():return {"status":"ok"}
 @app.get("/alerts",response_model=list[AlertOut],dependencies=[Depends(require_token)])
 async def alerts(db:AsyncSession=Depends(session)):return (await db.scalars(select(Alert).order_by(Alert.id))).all()
 @app.post("/alerts",response_model=AlertOut,dependencies=[Depends(require_token)])
@@ -53,6 +55,7 @@ async def listing_history(lid:int,db:AsyncSession=Depends(session)):
 async def flags(db:AsyncSession=Depends(session)):
     return (await db.scalars(select(UserFlag).order_by(UserFlag.listing_id))).all()
 async def set_flag(lid:int,key:str,body:FlagIn,db:AsyncSession):
+    if not await db.get(Listing,lid):raise HTTPException(404,"Annonce introuvable")
     f=await db.get(UserFlag,lid)
     if not f:f=UserFlag(listing_id=lid);db.add(f)
     setattr(f,key,body.value);await db.commit();return {"ok":True}

@@ -55,8 +55,17 @@ struct ListingDTO: Codable, Identifiable, Hashable, Sendable {
     let currency: String
     let url: String
     let imageUrl: String?
+    let imageUrls: [String]?
+    let sellerName: String?
+    let sellerRating: Double?
+    let sellerReviewsCount: Int?
     let condition: String?
     let size: String?
+    let scoreLabel: String?
+    let scorePercentile: Double?
+    let scoreMedian: Double?
+    let scoreSampleCount: Int?
+    let scoreConfidence: String?
     let status: String
     let createdAt: Date
     let updatedAt: Date

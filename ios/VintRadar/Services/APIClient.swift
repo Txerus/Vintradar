@@ -55,7 +55,7 @@ actor APIClient {
         guard let base = URL(string: url) else {
             throw APIError.invalidURL
         }
-        let healthURL = base.appendingPathComponent("health")
+        let healthURL = base.appendingPathComponent("auth/check")
         var request = URLRequest(url: healthURL)
         request.timeoutInterval = 12
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
