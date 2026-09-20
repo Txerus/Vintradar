@@ -125,6 +125,7 @@ def upgrade() -> None:
         op.add_column("listings", column)
     op.execute("UPDATE listings SET total_item_price = price + buyer_fee")
     op.execute("UPDATE listings SET first_seen_at = created_at")
+    op.drop_column("listings", "created_at")
     op.create_index("ix_listings_category_id", "listings", ["category_id"])
     op.create_index("ix_listings_seller_id", "listings", ["seller_id"])
     op.create_index("ix_listings_condition_segment", "listings", ["condition_segment"])
