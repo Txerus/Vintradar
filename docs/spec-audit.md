@@ -78,7 +78,7 @@
 
 | Exigence | État | Preuve / limite |
 |---|---|---|
-| Tests backend | Fait | CI du 20/09/2026 : 27 tests réussis en 4,19 s. |
+| Tests backend | Fait | CI finale du 20/09/2026 : 27 tests réussis en 2,55 s. |
 | Migration PostgreSQL | Fait | CI sur PostgreSQL 17 : migration legacy→head, 1 annonce globale/2 liens après fusion, 11 tables, colonnes requises et `alembic check` sans opération résiduelle. |
 | Tests/build iOS | Fait | CI Xcode 26.6 : 6 tests sans échec, 18 fichiers/1 852 lignes Swift tous compilés, binaire arm64 de 2 298 824 octets, `Assets.car` et icônes iPhone+iPad présents. |
 | Pré-release `latest` | Fait | IPA de 618 359 octets publiée ; SHA-256 `185dad576be045e3a6bef047802bf0fb8dae9cb81324b4bf522105eeb4bccf99`. |
