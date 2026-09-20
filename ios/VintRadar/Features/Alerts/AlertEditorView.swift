@@ -30,6 +30,7 @@ struct AlertEditorView: View {
     @State private var scanMinutes: Int
     @State private var threshold: String
     @State private var saving = false
+    @State private var preview: AlertPreviewDTO?
 
     init(mode: AlertEditorMode) {
         self.mode = mode
@@ -52,6 +53,13 @@ struct AlertEditorView: View {
                         .textInputAutocapitalization(.never)
                     TextField("Termes exclus, séparés par des virgules", text: $excludeTerms)
                         .textInputAutocapitalization(.never)
+                    if let preview {
+                        LabeledContent("Aperçu", value: "\(preview.count) résultats sur la première page")
+                        if let warning = preview.budgetWarning {
+                            Label(warning, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
                 }
                 Section("Budget") {
                     TextField("Prix minimum", text: $minimumPrice).keyboardType(.decimalPad)
@@ -59,12 +67,13 @@ struct AlertEditorView: View {
                 }
                 Section("Surveillance") {
                     Picker("Fréquence", selection: $scanMinutes) {
-                        ForEach([5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
+                        ForEach([2, 5, 10, 15, 30, 60], id: \.self) { Text("\($0) min").tag($0) }
                     }
                     Picker("Notifier à partir de", selection: $threshold) {
-                        Text("Excellente affaire").tag("DEAL")
-                        Text("Bon prix").tag("GOOD")
-                        Text("Toutes").tag("NORMAL")
+                        Text("Toutes les annonces").tag("ALL")
+                        Text("Bons prix et affaires").tag("GOOD")
+                        Text("Normal et mieux").tag("NORMAL")
+                        Text("Affaires uniquement").tag("DEAL")
                     }
                 }
                 Section {
@@ -72,6 +81,11 @@ struct AlertEditorView: View {
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
+            }
+            .task(id: includeTerms + "|" + excludeTerms + "|" + minimumPrice + "|" + maximumPrice + "|\(scanMinutes)") {
+                try? await Task.sleep(for: .milliseconds(600))
+                guard !includeTermsList.isEmpty else { preview = nil; return }
+                preview = await model.previewAlert(makeDraft())
             }
             .navigationTitle(mode.alert == nil ? "Nouvelle alerte" : "Modifier l’alerte")
             .navigationBarTitleDisplayMode(.inline)
@@ -93,6 +107,11 @@ struct AlertEditorView: View {
     private func save() async {
         saving = true
         defer { saving = false }
+        let draft = makeDraft()
+        if await model.saveAlert(draft, editing: mode.alert) { dismiss() }
+    }
+
+    private func makeDraft() -> AlertDraft {
         var draft = AlertDraft()
         draft.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         draft.includeTerms = includeTermsList
@@ -102,6 +121,6 @@ struct AlertEditorView: View {
         draft.scanMinutes = scanMinutes
         draft.notifyThreshold = threshold
         draft.paused = mode.alert?.paused ?? false
-        if await model.saveAlert(draft, editing: mode.alert) { dismiss() }
+        return draft
     }
 }

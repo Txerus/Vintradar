@@ -7,16 +7,26 @@ from app.config import settings
 
 def notification_payload(listing: Any, label: str = "NEW") -> dict:
     deal_prefix = "🔥 " if label == "DEAL" else ""
+    detail = getattr(listing, "pricing_explanation", {}) or {}
+    if detail.get("evaluated"):
+        delta = 0
+        if detail.get("median"):
+            delta = round((detail["price"]["total"] / detail["median"] - 1) * 100)
+        reason = f"{delta:+d} % vs {detail.get('count', 0)} comparables"
+    else:
+        reason = f"Prix non évalué — {detail.get('reason', 'comparables insuffisants')}"
+    total = getattr(listing, "total_item_price", listing.price)
+    external_id = getattr(listing, "external_id", str(listing.id))
     return {
         "topic": settings.ntfy_topic,
         "title": f"{deal_prefix}{listing.title}",
-        "message": f"{listing.price:.2f} {listing.currency}",
+        "message": f"{total:.2f} {listing.currency} · {reason}",
         "click": f"vintradar://item/{listing.id}",
         "actions": [
             {
                 "action": "view",
                 "label": "Voir sur Vinted",
-                "url": listing.url,
+                "url": f"https://www.vinted.fr/items/{external_id}",
             }
         ],
         "priority": "high" if label == "DEAL" else "default",

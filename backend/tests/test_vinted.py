@@ -3,7 +3,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.vinted import VintedClient, extract_jsonld_items
+from pathlib import Path
+
+from app.vinted import VintedClient, extract_item_detail, extract_jsonld_items
 
 
 class FakeResponse:
@@ -52,6 +54,25 @@ def test_extract_jsonld_item_list() -> None:
             "_source": "json-ld",
         }
     ]
+
+
+def test_extract_live_shape_item_detail_fixture() -> None:
+    document = (Path(__file__).parent / "fixtures/vinted/item_detail.html").read_text()
+    detail = extract_item_detail(document, "987654", "https://www.vinted.fr/items/987654")
+    assert detail.description == "Set complet, notice incluse."
+    assert detail.photos == [
+        "https://images.example/42035-1.webp",
+        "https://images.example/42035-2.webp",
+    ]
+    assert detail.condition == "Très bon état"
+    assert detail.size == "Taille unique"
+    assert detail.category_id == "1767"
+    assert detail.category_path == ["Enfants", "Jeux de construction"]
+    assert detail.colors == ["Bleu", "Blanc"]
+    assert detail.favourite_count == 12
+    assert detail.view_count == 84
+    assert detail.seller["rating"] == 4.9
+    assert detail.seller["reviews_count"] == 127
 
 
 @pytest.mark.asyncio

@@ -25,8 +25,14 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - run: pip install -e '.[test]'
-      - name: Run migrations on PostgreSQL
-        run: alembic upgrade head
+      - name: Migrate legacy schema and seed duplicate listings
+        run: |
+          alembic upgrade 0003
+          python scripts/check_duplicate_migration.py seed
+      - name: Run v0.2 migration and verify duplicate merge
+        run: |
+          alembic upgrade head
+          python scripts/check_duplicate_migration.py verify
       - name: Verify PostgreSQL schema
         run: python scripts/check_schema.py
       - name: Check migration/model parity

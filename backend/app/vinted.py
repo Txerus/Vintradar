@@ -4,6 +4,7 @@ import html
 import json
 import random
 import re
+import time
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Any
@@ -25,6 +26,28 @@ class RequestDiagnostics:
     status_code: int | None = None
     response_body: str | None = None
     fallback_used: bool = False
+
+
+@dataclass(frozen=True)
+class ItemDetail:
+    external_id: str
+    title: str
+    description: str
+    photos: list[str]
+    brand: str | None
+    size: str | None
+    condition: str | None
+    category_id: str | None
+    category_name: str | None
+    category_path: list[str]
+    colors: list[str]
+    published_at: str | None
+    favourite_count: int | None
+    view_count: int | None
+    shipping: float | None
+    status: str
+    seller: dict[str, Any]
+    source_url: str
 
 
 class _JSONLDScriptParser(HTMLParser):
@@ -99,6 +122,118 @@ def extract_jsonld_items(document: str) -> list[dict[str, Any]]:
     return results
 
 
+def _jsonld_products(document: str) -> list[dict[str, Any]]:
+    parser = _JSONLDScriptParser()
+    parser.feed(document)
+    products: list[dict[str, Any]] = []
+    for raw in parser.scripts:
+        try:
+            payload = json.loads(html.unescape(raw))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for node in payload if isinstance(payload, list) else [payload]:
+            if isinstance(node, dict) and node.get("@type") == "Product":
+                products.append(node)
+    return products
+
+
+def _flight_payload(document: str) -> str:
+    chunks: list[str] = []
+    for match in re.finditer(r"self\.__next_f\.push\((\[.*?\])\)\s*</script>", document, re.DOTALL):
+        try:
+            value = json.loads(match.group(1))
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if isinstance(value, list) and len(value) > 1 and isinstance(value[1], str):
+            chunks.append(value[1])
+    return "\n".join(chunks)
+
+
+def _first_match(text: str, patterns: tuple[str, ...], cast: type = str) -> Any:
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                return cast(match.group(1))
+            except (TypeError, ValueError):
+                return None
+    return None
+
+
+def extract_item_detail(document: str, external_id: str, source_url: str) -> ItemDetail:
+    products = _jsonld_products(document)
+    product = products[0] if products else {}
+    flight = _flight_payload(document)
+    combined = html.unescape(flight)
+    offers = product.get("offers") if isinstance(product.get("offers"), dict) else {}
+    images = product.get("image") or []
+    if not isinstance(images, list):
+        images = [images]
+    photos = [str(value.get("url") if isinstance(value, dict) else value) for value in images if value]
+    for value in re.findall(r'"(?:full_size_url|url)"\s*:\s*"(https:\\/\\/images[^"]+)"', combined):
+        decoded = value.replace("\\/", "/")
+        if decoded not in photos:
+            photos.append(decoded)
+    brand_value = product.get("brand")
+    brand = brand_value.get("name") if isinstance(brand_value, dict) else brand_value
+    reputation = _first_match(combined, (r'"feedback_reputation"\s*:\s*([0-9.]+)',), float)
+    if reputation is not None and reputation <= 1:
+        reputation *= 5
+    seller = {
+        "id": _first_match(combined, (r'"seller_id"\s*:\s*"?([0-9]+)', r'"user_id"\s*:\s*"?([0-9]+)')),
+        "name": _first_match(combined, (r'"feedback_count"[^{}]{0,300}"name"\s*:\s*"([^"]+)"', r'"username"\s*:\s*"([^"]+)"')),
+        "rating": reputation,
+        "reviews_count": _first_match(combined, (r'"feedback_count"\s*:\s*([0-9]+)',), int),
+        "location": _first_match(combined, (r'"(?:city|country_title|country)"\s*:\s*"([^"]+)"',)),
+        "created_at": _first_match(combined, (r'"(?:account_created_at|created_at)"\s*:\s*"([^"]+)"',)),
+        "last_login_at": _first_match(combined, (r'"last_logged_on_ts"\s*:\s*"([^"]+)"',)),
+    }
+    attribute_block = _first_match(
+        combined,
+        (rf'"attributes"\s*:\s*(\[.*?\])\s*,\s*"item_id"\s*:\s*"{re.escape(external_id)}"',),
+    ) or ""
+    def attribute(code: str) -> str | None:
+        return _first_match(
+            attribute_block,
+            (rf'"code"\s*:\s*"{code}".*?"value"\s*:\s*"([^"]+)"',),
+        )
+    availability = str(offers.get("availability") or "").lower()
+    if re.search(r'"is_reserved"\s*:\s*true', combined):
+        status = "RESERVED"
+    elif re.search(r'"is_sold"\s*:\s*true', combined) or "outofstock" in availability or "soldout" in availability:
+        status = "SOLD_CONFIRMED"
+    else:
+        status = "ACTIVE"
+    breadcrumbs = _first_match(
+        combined,
+        (rf'"breadcrumbs"\s*:\s*(\[.*?\])\s*,\s*"catalog_id"\s*:\s*"?(\d+)"?\s*,\s*"item_id"\s*:\s*"{re.escape(external_id)}"',),
+    ) or ""
+    category_path = re.findall(r'"title"\s*:\s*"([^"]+)"', breadcrumbs)
+    return ItemDetail(
+        external_id=external_id,
+        title=str(product.get("name") or _first_match(combined, (r'"title"\s*:\s*"([^"]+)"',)) or "Annonce Vinted"),
+        description=str(product.get("description") or ""),
+        photos=photos,
+        brand=str(brand) if brand else _first_match(combined, (r'"brand_title"\s*:\s*"([^"]+)"',)),
+        size=attribute("size"),
+        condition=attribute("status"),
+        category_id=_first_match(
+            combined,
+            (rf'"breadcrumbs"\s*:\s*\[.*?\]\s*,\s*"catalog_id"\s*:\s*"?(\d+)"?\s*,\s*"item_id"\s*:\s*"{re.escape(external_id)}"',),
+        ),
+        category_name=category_path[-1] if category_path else None,
+        category_path=category_path,
+        colors=[value.strip() for value in (attribute("color") or "").split(",") if value.strip()],
+        published_at=None,
+        favourite_count=_first_match(combined, (r'"favourite_count"\s*:\s*([0-9]+)',), int),
+        view_count=_first_match(combined, (r'"view_count"\s*:\s*([0-9]+)',), int),
+        shipping=_first_match(combined, (r'"shipping[^"]*"\s*:\s*\{[^{}]*"amount"\s*:\s*"([0-9.]+)"',), float),
+        status=str(status).upper(),
+        seller=seller,
+        source_url=source_url,
+    )
+
+
 def _item_id(item: dict[str, Any], url: str, position: int) -> str:
     identifier = item.get("productID") or item.get("sku") or item.get("@id")
     if identifier:
@@ -136,10 +271,20 @@ class VintedClient:
         self.csrf_token: str | None = None
         self.last_diagnostics: RequestDiagnostics | None = None
         self.request_history: list[RequestDiagnostics] = []
+        self._rate_lock = asyncio.Lock()
+        self._last_request_at = 0.0
 
     def _record(self, diagnostics: RequestDiagnostics) -> None:
         self.last_diagnostics = diagnostics
         self.request_history.append(diagnostics)
+
+    async def _throttle(self) -> None:
+        async with self._rate_lock:
+            interval = 60 / max(1, settings.scan_global_rpm)
+            delay = interval - (time.monotonic() - self._last_request_at)
+            if delay > 0:
+                await asyncio.sleep(delay)
+            self._last_request_at = time.monotonic()
 
     async def bootstrap(self) -> None:
         response = await self.http.get(self.base + "/", timeout=20)
@@ -176,14 +321,18 @@ class VintedClient:
             headers["X-Csrf-Token"] = self.csrf_token
         return headers
 
-    async def search(self, alert: Any) -> list[dict[str, Any]]:
+    async def search(self, alert: Any, *, page: int = 1, search_text: str | None = None) -> list[dict[str, Any]]:
         self.request_history = []
         if not self.ready:
             await self.bootstrap()
         params = self.search_params(alert)
+        params = [(key, page if key == "page" else value) for key, value in params]
+        if search_text is not None:
+            params = [(key, search_text if key == "search_text" else value) for key, value in params]
         api_url = self.api_base + "/svc-catalogue/items"
         last_error: str | None = None
         for attempt in range(4):
+            await self._throttle()
             headers = self.request_headers()
             response = await self.http.get(api_url, params=params, headers=headers, timeout=20)
             full_url = f"{api_url}?{urlencode(params)}"
@@ -222,6 +371,43 @@ class VintedClient:
             return fallback
         detail = last_error or "empty JSON-LD fallback"
         raise VintedError(f"Vinted search failed ({detail})")
+
+    async def detail(self, external_id: str) -> ItemDetail:
+        if not self.ready:
+            await self.bootstrap()
+        url = f"{self.base}/items/{external_id}"
+        last_error = ""
+        for attempt in range(4):
+            await self._throttle()
+            response = await self.http.get(
+                url,
+                headers={"Accept": "text/html,application/xhtml+xml", "Referer": self.base + "/"},
+                timeout=25,
+            )
+            body = response.text[:4000] if response.status_code >= 400 else None
+            self._record(RequestDiagnostics(
+                url=url,
+                headers=("Accept", "Referer"),
+                status_code=response.status_code,
+                response_body=body,
+                fallback_used=True,
+            ))
+            if response.status_code == 404:
+                return ItemDetail(
+                    external_id, "", "", [], None, None, None, None, None, [], [], None,
+                    None, None, None, "DELETED", {}, url,
+                )
+            if response.status_code in (403, 429):
+                last_error = f"{response.status_code}: {body}"
+                await asyncio.sleep((2**attempt) + random.random())
+                continue
+            if response.status_code >= 400:
+                raise VintedError(f"item detail {response.status_code}: {body}")
+            detail = extract_item_detail(response.text, external_id, url)
+            if not detail.title or (not detail.description and not detail.photos):
+                raise VintedError("item page contained no usable Product JSON-LD or hydration data")
+            return detail
+        raise VintedError(f"item detail failed ({last_error})")
 
     async def _search_jsonld(self, params: list[tuple[str, Any]]) -> list[dict[str, Any]]:
         url = self.base + "/catalog"

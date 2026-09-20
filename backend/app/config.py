@@ -5,7 +5,11 @@ class Settings(BaseSettings):
     vintradar_api_token: str = "dev-token"
     vinted_domain: str = "https://www.vinted.fr"
     scan_global_rpm: int = 4
+    scan_daily_budget: int = 1440
+    targeted_search_daily_budget: int = 24
     ntfy_url: str = "http://localhost:8080"
+    ntfy_base_url: str = "http://localhost:8080"
+    ntfy_upstream_base_url: str = "https://ntfy.sh"
     ntfy_topic: str = "vintradar"
     ntfy_token: str | None = None
     ollama_enabled: bool = False
@@ -15,5 +19,8 @@ class Settings(BaseSettings):
     bricklink_consumer_secret: str | None = None
     bricklink_token_value: str | None = None
     bricklink_token_secret: str | None = None
+    brickset_api_key: str | None = None
+    rebrickable_api_key: str | None = None
+    pricecharting_token: str | None = None
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 settings=Settings()

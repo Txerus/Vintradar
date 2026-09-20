@@ -18,10 +18,10 @@ struct ListingsView: View {
 
     private var filtered: [ListingDTO] {
         var values = favoritesOnly ? model.favoriteListings : model.visibleListings
-        if let alertID { values = values.filter { $0.alertId == alertID } }
+        if let alertID { values = values.filter { $0.alertIds?.contains(alertID) == true } }
         if !query.isEmpty { values = values.filter { $0.title.localizedCaseInsensitiveContains(query) } }
         switch sortMode {
-        case .newest: values.sort { $0.createdAt > $1.createdAt }
+        case .newest: values.sort { $0.firstSeenAt > $1.firstSeenAt }
         case .price: values.sort { $0.total < $1.total }
         case .score: values.sort { (model.score(for: $0).percentile ?? 2) < (model.score(for: $1).percentile ?? 2) }
         }
@@ -66,4 +66,3 @@ struct ListingsView: View {
         .navigationDestination(for: ListingDTO.self) { ListingDetailView(item: $0) }
     }
 }
-

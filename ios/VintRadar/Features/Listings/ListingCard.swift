@@ -30,11 +30,14 @@ struct ListingCard: View {
                 HStack {
                     Text(item.condition ?? "État non précisé")
                     Text("·")
-                    Text(item.createdAt, format: .relative(presentation: .named))
+                    Text(item.firstSeenAt, format: .relative(presentation: .named))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 ScoreBadge(score: score)
+                Text(shortReason)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -43,6 +46,14 @@ struct ListingCard: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 24))
         .accessibilityElement(children: .combine)
         .accessibilityHint("Ouvre le détail de l’annonce")
+    }
+
+    private var shortReason: String {
+        guard let median = item.scoreMedian, let count = item.scoreSampleCount, count > 0 else {
+            return "Prix non évalué"
+        }
+        let difference = Int(((item.total / median - 1) * 100).rounded())
+        return "\(difference > 0 ? "+" : "")\(difference) % vs \(count) comparables"
     }
 }
 
@@ -63,4 +74,3 @@ struct ListingContextActions: View {
         }
     }
 }
-

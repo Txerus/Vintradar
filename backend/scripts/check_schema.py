@@ -9,13 +9,16 @@ from app.config import settings
 
 EXPECTED_TABLES = {
     "alerts",
+    "alert_listings",
     "external_prices",
     "listing_product_match",
     "listing_snapshots",
     "listings",
     "price_stats",
     "products",
+    "seller_profiles",
     "user_flags",
+    "worker_state",
 }
 
 
@@ -44,6 +47,11 @@ async def main() -> None:
         "seller_name",
         "seller_rating",
         "seller_reviews_count",
+        "total_item_price",
+        "category_id",
+        "condition_segment",
+        "pricing_explanation",
+        "first_seen_at",
     }
     missing_columns = expected_listing_columns - columns
     if missing_columns:

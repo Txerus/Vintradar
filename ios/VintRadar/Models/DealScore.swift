@@ -62,3 +62,36 @@ struct DealScore: Hashable, Sendable {
         return DealScore(label: label, percentile: percentile, median: median, sampleCount: sorted.count)
     }
 }
+
+enum PricingPhrase {
+    static func french(_ explanation: PricingExplanationDTO, currency: String = "EUR") -> String {
+        guard explanation.evaluated,
+              let median = explanation.median,
+              let percentile = explanation.percentile,
+              let count = explanation.count else {
+            return "Prix non évalué : \(explanation.reason ?? "pas assez d’annonces comparables")."
+        }
+        let total = explanation.price.total.formatted(.currency(code: currency))
+        let item = explanation.price.item.formatted(.currency(code: currency))
+        let fee = explanation.price.buyerFee.formatted(.currency(code: currency))
+        let medianText = median.formatted(.currency(code: currency))
+        let below = Int(abs((explanation.price.total / median - 1) * 100).rounded())
+        let direction = explanation.price.total <= median ? "sous" : "au-dessus de"
+        let confidence: String
+        switch explanation.confidence {
+        case "HIGH": confidence = "élevée"
+        case "MEDIUM": confidence = "moyenne"
+        default: confidence = "faible"
+        }
+        let fallback = explanation.fallbackLabel.map { " Niveau de comparaison : \($0)." } ?? ""
+        return "\(item) + \(fee) de protection acheteur = \(total). C’est \(below) % \(direction) la médiane de \(medianText), calculée sur \(count) annonces comparables vues ces \(explanation.windowDays) derniers jours (percentile \(Int((percentile * 100).rounded()))). Confiance \(confidence).\(fallback)"
+    }
+
+    static func short(_ explanation: PricingExplanationDTO) -> String {
+        guard explanation.evaluated, let median = explanation.median, let count = explanation.count else {
+            return "Prix non évalué"
+        }
+        let difference = Int(((explanation.price.total / median - 1) * 100).rounded())
+        return "\(difference > 0 ? "+" : "")\(difference) % vs \(count) comparables"
+    }
+}

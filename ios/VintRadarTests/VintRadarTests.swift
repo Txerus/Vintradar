@@ -2,36 +2,31 @@ import XCTest
 @testable import VintRadar
 
 final class VintRadarTests: XCTestCase {
-    func testListingTotal() {
-        let date = Date()
-        let listing = ListingDTO(
-            id: 1,
-            alertId: 1,
-            externalId: "x",
-            title: "x",
-            description: "",
-            price: 10,
-            shippingEstimate: 2,
-            buyerFee: 1,
-            currency: "EUR",
-            url: "https://example.com",
-            imageUrl: nil,
-            imageUrls: [],
-            sellerName: nil,
-            sellerRating: nil,
-            sellerReviewsCount: nil,
-            condition: nil,
-            size: nil,
-            scoreLabel: "DEAL",
-            scorePercentile: 0.1,
-            scoreMedian: 20,
-            scoreSampleCount: 12,
-            scoreConfidence: "MEDIUM",
-            status: "ACTIVE",
-            createdAt: date,
-            updatedAt: date
-        )
-        XCTAssertEqual(listing.total, 13)
+    func testNewListingDTODecodingAndVintedTotal() throws {
+        let json = """
+        {
+          "id":1,"alert_id":1,"alert_ids":[1,2],"external_id":"x","title":"LEGO 42035",
+          "description":"Complet","price":30,"total_item_price":32.2,"shipping_estimate":4,
+          "buyer_fee":2.2,"currency":"EUR","url":"https://www.vinted.fr/items/x",
+          "image_url":null,"image_urls":[],"brand":"LEGO","category_id":"1767",
+          "category_name":"Jeux de construction","category_path":["Enfants","Jeux"],
+          "colors":["Bleu"],"seller_name":"vendeur","seller_rating":4.9,
+          "seller_reviews_count":12,"seller_location":"Paris","seller_created_at":null,
+          "seller_last_login_at":null,"condition":"Très bon état","condition_segment":"VERY_GOOD",
+          "size":null,"favourite_count":8,"view_count":40,"published_at":null,
+          "score_label":"DEAL","score_percentile":0.1,"score_median":52,
+          "score_sample_count":17,"score_confidence":"HIGH","pricing_explanation":{},
+          "status":"ACTIVE","first_seen_at":"2026-09-19T12:00:00Z",
+          "updated_at":"2026-09-19T12:00:00Z"
+        }
+        """
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        let listing = try decoder.decode(ListingDTO.self, from: Data(json.utf8))
+        XCTAssertEqual(listing.total, 32.2)
+        XCTAssertEqual(listing.alertIds, [1, 2])
+        XCTAssertEqual(listing.categoryPath, ["Enfants", "Jeux"])
     }
 
     func testServerScoreIsRepresentable() {
@@ -50,6 +45,48 @@ final class VintRadarTests: XCTestCase {
         let score = DealScore.calculate(price: 10, comparablePrices: [12, 15])
         XCTAssertEqual(score.label, .unknown)
         XCTAssertNil(score.percentile)
+    }
+
+    func testFrenchPricingExplanationAndCorrectionEncoding() throws {
+        let explanation = PricingExplanationDTO(
+            evaluated: true,
+            reason: nil,
+            price: PriceBreakdownDTO(item: 30, buyerFee: 2.2, shipping: 0, total: 32.2),
+            product: RecognizedProductDTO(key: "lego:42035", model: "42035", confidence: 1, text: "LEGO 42035"),
+            conditionSegment: "VERY_GOOD",
+            windowDays: 90,
+            count: 17,
+            median: 52,
+            p20: 38,
+            p75: 61,
+            percentile: 0.12,
+            confidence: "HIGH",
+            fallbackLevel: 1,
+            fallbackLabel: "même produit et même état",
+            comparableIds: [2, 3],
+            externalReferences: []
+        )
+        let phrase = PricingPhrase.french(explanation)
+        XCTAssertTrue(phrase.contains("17 annonces comparables"))
+        XCTAssertTrue(phrase.contains("Confiance élevée"))
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        let data = try encoder.encode(ProductCorrection(canonicalKey: "lego:42035", excludeFromStats: false))
+        XCTAssertTrue(String(decoding: data, as: UTF8.self).contains("canonical_key"))
+    }
+
+    func testInterestSignalFromSnapshots() {
+        let start = Date(timeIntervalSince1970: 0)
+        let snapshots = [
+            ListingSnapshotDTO(
+                id: 1, listingId: 1, price: 30, totalItemPrice: 32,
+                favouriteCount: 2, viewCount: 10, status: "ACTIVE", observedAt: start
+            )
+        ]
+        XCTAssertEqual(
+            InterestSignal.text(history: snapshots, currentFavorites: 14, now: start.addingTimeInterval(7200)),
+            "+12 favoris en 2 h"
+        )
     }
 
     @MainActor

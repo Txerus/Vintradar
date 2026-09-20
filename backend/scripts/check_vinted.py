@@ -61,7 +61,8 @@ async def main() -> None:
     print(f"New/unmapped keys: {new}")
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     safe_keyword = args.keyword.replace(" ", "_").replace("/", "_")
-    out = Path("/app/tests/fixtures/vinted") / f"catalog_{safe_keyword}_{stamp}.json"
+    fixture_root = Path(__file__).resolve().parents[1] / "tests/fixtures/vinted/live"
+    out = fixture_root / f"catalog_{safe_keyword}_{stamp}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps({"items": items}, ensure_ascii=False, indent=2), encoding="utf-8")
     print(f"Fixture saved: {out}")

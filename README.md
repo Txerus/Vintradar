@@ -1,4 +1,4 @@
-# VintRadar
+# VintRadar v0.2
 
 VintRadar est une application iOS personnelle et un backend auto-hébergé de veille d'annonces. Elle n'est pas affiliée à Vinted.
 
@@ -30,7 +30,7 @@ Ollama est optionnel : `docker compose --profile ollama up -d`. Les identifiants
 
 OpenAPI est disponible sur `/docs`. Les routes métier demandent `Authorization: Bearer <VINTRADAR_API_TOKEN>`. `/health` reste public pour les healthchecks.
 
-Le worker utilise un débit global prudent (`SCAN_GLOBAL_RPM=4` par défaut), respecte la fréquence de chaque alerte, ouvre une session anonyme et applique un backoff sur 403/429. La recherche utilise `/svc-catalogue/items` puis se replie sur le JSON-LD de `/catalog`. L'API Vinted étant interne et non contractuelle, son adaptation est isolée dans `backend/app/vinted.py`. VintRadar n'automatise ni achat, ni message, ni action sur un compte.
+Le worker utilise un débit global prudent (`SCAN_GLOBAL_RPM=4` par défaut), respecte la fréquence de chaque alerte, ouvre une session anonyme et applique un backoff sur 403/429. La recherche utilise `/svc-catalogue/items` puis se replie sur le JSON-LD de `/catalog`. Le détail utilise la page publique `/items/{id}` et ses données JSON-LD/hydratées, les variantes JSON ayant répondu 404 lors de la vérification du 19/09/2026. L'API Vinted étant interne et non contractuelle, son adaptation est isolée dans `backend/app/vinted.py`. VintRadar n'automatise ni achat, ni message, ni action sur un compte.
 
 ## iOS et GitHub Actions
 
@@ -93,11 +93,11 @@ Les tests iOS sont exécutés en CI, ce qui évite toute dépendance à Xcode lo
 
 Les annonces utilisent cinq statuts : `ACTIVE`, `SOLD_CONFIRMED`, `DISAPPEARED`, `DELETED`, `UNKNOWN`. Une disparition n'est jamais assimilée automatiquement à une vente confirmée.
 
-Le scoring robuste est calculé par le worker, stocké en base et renvoyé à l'app. Il élimine les valeurs aberrantes par IQR puis classe le coût disponible selon son percentile : DEAL <=20 %, GOOD <50 %, NORMAL <=75 %, EXPENSIVE >75 %. La confiance dépend du nombre de comparables. Le premier scan d'une alerte initialise la base sans notifier ; seules les annonces découvertes lors d'un scan ultérieur sont éligibles.
+Chaque identifiant Vinted n’est stocké qu’une fois et peut appartenir à plusieurs alertes. Le score utilise `total_item_price`, le même produit canonique et un segment d’état compatible sur 90 jours. Il écarte lots/pièces/HS/boîtes vides/notices, dédoublonne les republications, retire les aberrants par IQR et privilégie les ventes confirmées. Un repli hiérarchique produit une confiance faible explicite ; sans produit ou segment fiable, aucun badge n’est inventé.
 
 ## Sources de prix
 
-L'interface `PriceSource` réserve les intégrations BrickLink, PriceCharting, eBay, Keepa et Back Market. Ces connecteurs restent non opérationnels tant que leurs implémentations et identifiants propres ne sont pas fournis ; ils ne participent pas au score actuel. Le score opérationnel repose sur les annonces Vinted normalisées et persistées.
+Les connecteurs optionnels implémentés sont Rebrickable (validation des sets), BrickLink Price Guide (ventes Europe/EUR), Brickset (fiche et prix public) et PriceCharting (jeux/consoles, USD converti au taux BCE). Ils sont désactivés automatiquement sans leurs clés et restent affichés séparément de la médiane Vinted. Ils ne sont jamais additionnés au score Vinted.
 
 ## Secrets GitHub
 

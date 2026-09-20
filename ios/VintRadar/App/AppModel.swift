@@ -21,6 +21,7 @@ final class AppModel {
     var dashboard: DashboardDTO?
     var workerStatus: WorkerStatusDTO?
     var flags: [Int: FlagDTO] = [:]
+    var pricing: [Int: PricingDTO] = [:]
     var loading = false
     var errorMessage: String?
     var isConfigured: Bool
@@ -108,6 +109,10 @@ final class AppModel {
         }
     }
 
+    func previewAlert(_ draft: AlertDraft) async -> AlertPreviewDTO? {
+        try? await api.send("alerts/preview", method: "POST", body: draft, as: AlertPreviewDTO.self)
+    }
+
     func togglePause(_ alert: AlertDTO) async {
         do {
             let updated: AlertDTO = try await api.send("alerts/\(alert.id)/pause", method: "POST", body: EmptyBody())
@@ -119,7 +124,7 @@ final class AppModel {
         do {
             try await api.delete("alerts/\(alert.id)")
             alerts.removeAll { $0.id == alert.id }
-            listings.removeAll { $0.alertId == alert.id }
+            listings.removeAll { $0.alertIds?.contains(alert.id) == true }
         } catch { errorMessage = error.localizedDescription }
     }
 
@@ -137,8 +142,7 @@ final class AppModel {
     }
 
     func comparablePrices(for item: ListingDTO) -> [Double] {
-        let sameAlert = listings.filter { $0.alertId == item.alertId && $0.id != item.id }.map(\.total)
-        return sameAlert.isEmpty ? listings.filter { $0.id != item.id }.map(\.total) : sameAlert
+        pricing[item.id]?.comparables.map(\.totalItemPrice) ?? []
     }
 
     func score(for item: ListingDTO) -> DealScore {
@@ -152,11 +156,33 @@ final class AppModel {
                 serverConfidence: item.scoreConfidence
             )
         }
-        return DealScore.calculate(price: item.total, comparablePrices: comparablePrices(for: item))
+        return DealScore(label: .unknown, percentile: nil, median: nil, sampleCount: 0)
     }
 
     func history(for item: ListingDTO) async -> [ListingSnapshotDTO] {
         (try? await api.get("listings/\(item.id)/history", as: [ListingSnapshotDTO].self)) ?? []
+    }
+
+    func pricing(for item: ListingDTO) async -> PricingDTO? {
+        if let stored = pricing[item.id] { return stored }
+        guard let fetched = try? await api.get("listings/\(item.id)/pricing", as: PricingDTO.self) else { return nil }
+        pricing[item.id] = fetched
+        return fetched
+    }
+
+    func correctProduct(_ item: ListingDTO, key: String?, exclude: Bool) async -> Bool {
+        do {
+            let _: APIAcknowledgement = try await api.send(
+                "listings/\(item.id)/product",
+                method: "PUT",
+                body: ProductCorrection(canonicalKey: key, excludeFromStats: exclude)
+            )
+            pricing[item.id] = nil
+            return true
+        } catch {
+            errorMessage = error.localizedDescription
+            return false
+        }
     }
 
     func handle(url: URL) async {

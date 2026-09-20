@@ -1,6 +1,6 @@
 [project]
 name="vintradar"
-version="0.1.0"
+version="0.2.0"
 requires-python=">=3.12"
 dependencies=["fastapi>=0.141,<0.142","uvicorn[standard]>=0.35","sqlalchemy[asyncio]>=2.0.43","asyncpg>=0.30","aiosqlite>=0.21","alembic>=1.16","pydantic-settings>=2.10","httpx>=0.28","curl-cffi>=0.16,<0.17","structlog>=25.4","playwright>=1.55"]
 [project.optional-dependencies]

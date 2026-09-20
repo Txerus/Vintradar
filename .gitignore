@@ -9,3 +9,4 @@ DerivedData/
 build/
 *.xcodeproj
 ios/VintRadar/Assets.xcassets/AppIcon.appiconset/AppIcon.png
+backend/tests/fixtures/vinted/live/

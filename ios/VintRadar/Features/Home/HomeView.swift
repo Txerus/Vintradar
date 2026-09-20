@@ -17,7 +17,7 @@ struct HomeView: View {
         model.visibleListings.sorted {
             let lhs = model.score(for: $0).percentile ?? 2
             let rhs = model.score(for: $1).percentile ?? 2
-            return lhs == rhs ? $0.createdAt > $1.createdAt : lhs < rhs
+            return lhs == rhs ? $0.firstSeenAt > $1.firstSeenAt : lhs < rhs
         }
     }
 
@@ -26,6 +26,18 @@ struct HomeView: View {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 22) {
                     ServerStatusChip(isOnline: model.isOnline, lastScan: model.dashboard?.lastScanAt)
+                    if let status = model.workerStatus {
+                        HStack {
+                            Label("File : \(status.enrichmentQueueSize ?? 0)", systemImage: "tray.full")
+                            Spacer()
+                            Text("403 : \(status.recent403Count ?? 0) · 429 : \(status.recent429Count ?? 0)")
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        if let error = status.lastError {
+                            ErrorBanner(message: "Worker : \(error)")
+                        }
+                    }
 
                     if let error = model.errorMessage { ErrorBanner(message: error) }
 
@@ -71,4 +83,3 @@ struct HomeView: View {
         }
     }
 }
-
