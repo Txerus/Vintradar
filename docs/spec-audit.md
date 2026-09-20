@@ -49,7 +49,7 @@
 | Explication JSON stockée | Fait | Décomposition, reconnaissance, état, repli, fenêtre, exclusions, quantiles, confiance et IDs. |
 | Endpoint pricing | Fait | `GET /listings/{id}/pricing` renvoie explication + comparables. Test API. |
 | Script terminal | Fait | `scripts/explain_listing.py`. |
-| Phrase, graphique, comparables iOS | Fait | Phrase française testée, Swift Charts avec P20/médiane/position et liste tappable. Validation de compilation confiée à la CI macOS. |
+| Phrase, graphique, comparables iOS | Fait | Phrase française testée, Swift Charts avec P20/médiane/position et liste tappable. Compilation et 6 tests Swift validés par la CI macOS. |
 | Correction/exclusion produit | Fait | `PUT /listings/{id}/product` et feuille iOS ; correction manuelle persistée et test API. Recalcul appliqué au scan suivant. |
 | Raison cartes/ntfy | Fait | Écart à médiane + nombre ; raison explicite si non évalué. |
 | Fiche et vendeur iOS | Fait selon données | Galerie, description, catégorie, date, compteurs et bloc vendeur affichent tous les champs disponibles, sans valeur inventée. |
@@ -78,9 +78,10 @@
 
 | Exigence | État | Preuve / limite |
 |---|---|---|
-| Tests backend | Fait localement | 27 tests réussis le 20/09/2026 en 1,81 s ; la valeur finale CI est à reporter après push. |
-| Migration PostgreSQL | En attente CI | Docker absent localement ; job GitHub avec PostgreSQL 17, fusion de doublons, `alembic check` et inspection de schéma. |
-| Tests/build iOS | En attente CI | Runner macOS/Xcode requis. Le workflow vérifie tests, sources, binaire, Assets.car, icônes, IPA et SHA-256. |
+| Tests backend | Fait | CI du 20/09/2026 : 27 tests réussis en 4,19 s. |
+| Migration PostgreSQL | Fait | CI sur PostgreSQL 17 : migration legacy→head, 1 annonce globale/2 liens après fusion, 11 tables, colonnes requises et `alembic check` sans opération résiduelle. |
+| Tests/build iOS | Fait | CI Xcode 26.6 : 6 tests sans échec, 18 fichiers/1 852 lignes Swift tous compilés, binaire arm64 de 2 298 824 octets, `Assets.car` et icônes iPhone+iPad présents. |
+| Pré-release `latest` | Fait | IPA de 618 359 octets publiée ; SHA-256 `185dad576be045e3a6bef047802bf0fb8dae9cb81324b4bf522105eeb4bccf99`. |
 | Appels live privés | À valider serveur | `check_vinted.py`, `check_item.py` et `explain_listing.py` sont fournis avec commandes/sorties attendues dans `docs/installation.md`. |
 
 ## Hors périmètre volontaire
