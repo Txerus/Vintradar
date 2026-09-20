@@ -100,7 +100,7 @@ Sortie attendue : URL `https://www.vinted.fr/items/<id>`, HTTP 200, champs JSON-
 Après au moins un scan, trouver un identifiant interne et expliquer son score :
 
 ```bash
-LISTING_ID=$(docker compose exec -T postgres psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Atc 'select id from listings order by first_seen_at desc limit 1')
+LISTING_ID=$(docker compose exec -T postgres psql -U "${POSTGRES_USER:-vintradar}" -d "${POSTGRES_DB:-vintradar}" -Atc 'select id from listings order by first_seen_at desc limit 1')
 docker compose run --rm api python scripts/explain_listing.py "$LISTING_ID"
 ```
 
