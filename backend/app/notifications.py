@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 import httpx
@@ -29,11 +30,13 @@ def notification_payload(listing: Any, label: str = "NEW") -> dict:
                 "url": f"https://www.vinted.fr/items/{external_id}",
             }
         ],
-        "priority": "high" if label == "DEAL" else "default",
+        # ntfy JSON API accepts the numeric priority. Text aliases are valid in
+        # HTTP headers but are rejected in the JSON body by current ntfy builds.
+        "priority": 5 if label == "DEAL" else 3,
     }
 
 
-async def notify(listing: Any, label: str = "NEW", client: httpx.AsyncClient | None = None) -> None:
+async def notify(listing: Any, label: str = "NEW", client: httpx.AsyncClient | None = None) -> int:
     headers: dict[str, str] = {}
     if settings.ntfy_token:
         headers["Authorization"] = f"Bearer {settings.ntfy_token}"
@@ -46,7 +49,14 @@ async def notify(listing: Any, label: str = "NEW", client: httpx.AsyncClient | N
             headers=headers,
             timeout=10,
         )
+        if response.is_error:
+            print(json.dumps({
+                "event": "ntfy_error",
+                "status": response.status_code,
+                "body": response.text[:2000],
+            }, ensure_ascii=False, sort_keys=True))
         response.raise_for_status()
+        return response.status_code
     finally:
         if owns_client:
             await active_client.aclose()

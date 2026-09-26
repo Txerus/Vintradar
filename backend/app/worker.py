@@ -26,7 +26,7 @@ from app.vinted import ItemDetail, VintedClient, VintedError
 
 Notifier = Callable[[Listing, str], Awaitable[None]]
 THRESHOLD_RANK = {"DEAL": 0, "GOOD": 1, "NORMAL": 2, "EXPENSIVE": 3}
-SCORING_VERSION = 2
+SCORING_VERSION = 3
 KNOWN_CONDITIONS = (
     "Neuf avec étiquette", "Neuf sans étiquette", "Très bon état", "Bon état", "Satisfaisant",
 )
@@ -132,16 +132,26 @@ def _catalog_summary(item: dict) -> tuple[str | None, str | None, str | None, st
         r"(?i)(État|Etat|Taille)\s*:\s*([^,;]+)", accessibility,
     ):
         if fold(label) == "etat":
-            accessibility_condition = known_condition(value)
+            # Preserve an unknown explicit value so the caller can log it and
+            # the next mapping update is driven by observed data.
+            accessibility_condition = known_condition(value) or value.strip()
         else:
             accessibility_size = value.strip()
 
     explicit_condition = _text_attribute(item, "status", "condition")
-    condition = known_condition(explicit_condition or "") or accessibility_condition
+    condition = (
+        (known_condition(explicit_condition) or explicit_condition.strip())
+        if explicit_condition else accessibility_condition
+    )
     if condition is None:
         condition = next((known_condition(part) for part in parts if known_condition(part)), None)
+    if condition is None:
+        condition = next((
+            part for part in parts
+            if re.search(r"\b(?:etat|neuf|bon|satisf|correct|use|new|good|worn)\b", fold(part))
+        ), None)
 
-    size_candidates = [part for part in parts if known_condition(part) is None]
+    size_candidates = [part for part in parts if part != condition and known_condition(part) is None]
     size = _text_attribute(item, "size", "size_title") or accessibility_size or (size_candidates[0] if size_candidates else None)
     brand = _text_attribute(item, "brand") or item_box.get("first_line")
     catalog = item.get("catalog") if isinstance(item.get("catalog"), dict) else {}
@@ -191,6 +201,13 @@ def _apply_detail(listing: Listing, detail: ItemDetail) -> None:
     listing.size = detail.size or listing.size
     listing.condition = detail.condition or listing.condition
     listing.condition_segment = condition_segment(listing.condition)
+    if listing.condition and not listing.condition_segment:
+        print(json.dumps({
+            "event": "unknown_condition",
+            "listing": listing.external_id,
+            "condition": listing.condition,
+            "source": "item_detail",
+        }, ensure_ascii=False, sort_keys=True))
     listing.category_id = detail.category_id or listing.category_id
     listing.category_name = detail.category_name or listing.category_name
     listing.category_path = detail.category_path or listing.category_path
@@ -310,7 +327,15 @@ async def _score_and_explain(db: AsyncSession, listing: Listing) -> Score | None
     category_confident = product_type in {"lego", "console", "game", "accessory"} or bool(
         product and (product.attributes or {}).get("category_confident")
     )
-    if not product or match.confidence < .65 or not category_confident or not listing.condition_segment:
+    if listing.status not in {ListingStatus.ACTIVE, ListingStatus.RESERVED}:
+        listing.pricing_explanation = explanation(
+            target, None, price=listing.price, buyer_fee=listing.buyer_fee,
+            shipping=listing.shipping_estimate,
+            recognition={"key": product.canonical_key if product else None, "confidence": match.confidence, "text": match.recognized_text},
+        )
+        listing.pricing_explanation["reason"] = "annonce supprimée ou indisponible"
+        score = None
+    elif not product or match.confidence < .65 or not category_confident or not listing.condition_segment:
         if not category_confident:
             reason = "catégorie console, jeu, accessoire ou autre non déterminée avec confiance"
         elif not listing.condition_segment:
@@ -353,6 +378,8 @@ async def _score_and_explain(db: AsyncSession, listing: Listing) -> Score | None
             recognition={"key": product.canonical_key, "model": product.model, "confidence": match.confidence, "text": match.recognized_text},
             external_references=references,
         )
+    if not listing.pricing_explanation.get("evaluated") and not listing.pricing_explanation.get("reason"):
+        listing.pricing_explanation["reason"] = "prix non évalué : raison technique non renseignée"
     listing.score_label = score.label if score else None
     listing.score_percentile = score.percentile if score else None
     listing.score_median = score.median if score else None
@@ -417,6 +444,8 @@ async def _targeted_collect(
     alert: Alert,
     products: list[Product],
     validator: RebrickableValidator,
+    *,
+    force: bool = False,
 ) -> int:
     collected = 0
     now = datetime.now(timezone.utc)
@@ -424,13 +453,13 @@ async def _targeted_collect(
         targeted_at = product.targeted_at
         if targeted_at and targeted_at.tzinfo is None:
             targeted_at = targeted_at.replace(tzinfo=timezone.utc)
-        if targeted_at and now - targeted_at < timedelta(hours=24):
+        if not force and targeted_at and now - targeted_at < timedelta(hours=24):
             continue
         known = await db.scalar(select(func.count()).select_from(ListingProductMatch).where(
             ListingProductMatch.product_id == product.id,
             ListingProductMatch.excluded_from_stats.is_(False),
         ))
-        if (known or 0) >= 6:
+        if not force and (known or 0) >= 6:
             continue
         query = " ".join(filter(None, [product.brand, product.model]))
         try:
@@ -443,6 +472,11 @@ async def _targeted_collect(
             if not external_id or await db.scalar(select(Listing.id).where(Listing.external_id == external_id)):
                 continue
             size, condition, brand, category_id = _catalog_summary(item)
+            if condition and not condition_segment(condition):
+                print(json.dumps({
+                    "event": "unknown_condition", "listing": external_id,
+                    "condition": condition, "source": "catalogue",
+                }, ensure_ascii=False, sort_keys=True))
             provisional = normalize(
                 str(item.get("title") or ""), str(item.get("description") or ""),
                 brand=brand, category=category_id, size=size,
@@ -518,6 +552,11 @@ async def scan(
             listing = await db.scalar(select(Listing).where(Listing.external_id == external_id))
             is_new_listing = listing is None
             size, condition, brand, category_id = _catalog_summary(item)
+            if condition and not condition_segment(condition):
+                print(json.dumps({
+                    "event": "unknown_condition", "listing": external_id,
+                    "condition": condition, "source": "catalogue",
+                }, ensure_ascii=False, sort_keys=True))
             seller_id, seller_name, seller_rating, seller_reviews = _seller_summary(item)
             photos = _photo_urls(item)
             if listing is None:

@@ -217,7 +217,7 @@ async def test_empty_explanation_suppresses_badge_and_returns_unevaluated_payloa
             external_id="legacy", title="Switch 2", description="", price=420,
             total_item_price=430, url="https://www.vinted.fr/items/legacy",
             score_label="DEAL", score_median=8, score_sample_count=29,
-            pricing_explanation={}, status=ListingStatus.ACTIVE,
+            pricing_explanation={"evaluated": False}, status=ListingStatus.ACTIVE,
         )
         database.add(listing)
         await database.commit()
@@ -226,6 +226,7 @@ async def test_empty_explanation_suppresses_badge_and_returns_unevaluated_payloa
     payload = (await client.get("/listings", headers=auth_headers())).json()[0]
     assert payload["pricing_evaluated"] is False
     assert payload["score_label"] is None
+    assert payload["pricing_explanation"]["reason"]
     pricing = (await client.get(f"/listings/{identifier}/pricing", headers=auth_headers())).json()
     assert pricing["explanation"]["evaluated"] is False
     assert "recalcul" in pricing["explanation"]["reason"]

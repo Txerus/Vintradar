@@ -39,6 +39,21 @@ jobs:
         run: alembic check
       - name: Run backend tests
         run: pytest -q
+      - name: Run real ntfy integration test
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run -d --name ntfy-ci -p 8081:80 binwiederhier/ntfy:latest serve
+          trap 'docker logs ntfy-ci' EXIT
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:8081/v1/health >/dev/null; then break; fi
+            sleep 1
+          done
+          curl -fsS http://127.0.0.1:8081/v1/health
+          NTFY_URL=http://127.0.0.1:8081 \
+          NTFY_TOPIC="vintradar-ci-${GITHUB_RUN_ID}" \
+          NTFY_INTEGRATION=1 \
+          pytest -q tests/integration/test_ntfy_container.py
   docker:
     runs-on: ubuntu-latest
     steps:

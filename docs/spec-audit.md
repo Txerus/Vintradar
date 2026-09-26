@@ -2,6 +2,19 @@
 
 État fondé sur le code et les tests du dépôt. « Partiel » signale explicitement ce qui dépend d’une API privée, d’un identifiant absent ou d’une validation sur le serveur réel.
 
+## Correctifs de recette v0.2.2
+
+| Exigence | État | Preuve / limite |
+|---|---|---|
+| JSON ntfy et lien personnalisé | Fait | Priorité numérique 5 pour `DEAL`, 3 sinon ; le test d’intégration CI publie réellement vers un conteneur ntfy, exige HTTP 200 et utilise `vintradar://item/277`. Le corps ntfy est journalisé sur erreur. |
+| Détail Vinted API d’abord | Fait avec repli | Les variantes `svc-*`, ancien endpoint et gateway réellement sondées sont documentées dans `docs/vinted-api.md`. Aucun endpoint complet n’a répondu ; le client les sonde avant la page publique, une fois par session. |
+| Hydratation Vinted actuelle | Fait | Le parseur Next/RSC extrait les greffons galerie, description, attributs, fil de catégorie, favoris et vendeur. Contrôle réel du 26/09/2026 : description 169 caractères, 3 photos, catégorie 3026 et note 4,9. |
+| Diagnostic d’enrichissement | Fait | Statut HTTP, URL finale et 500 premiers caractères conservés ; 404 public devient `DELETED`. `diagnose_enrichment.py` rejoue les erreurs en lecture seule ou avec `--apply`. |
+| Raison obligatoire sans score | Fait | Le moteur et l’API complètent systématiquement `reason`, neutralisent tout badge non évalué et le test de rescore part de sept explications vides. |
+| Comparables ciblés au rescore | Fait | Les produits restés sous cinq comparables lancent une recherche forcée puis sont recalculés ; test d’intégration base avec six résultats ciblés. |
+| États et catégories enrichis | Fait | Les cinq états français, synonymes observables anglais/français et ordre `sans`/`avec étiquette` sont testés ; tout inconnu produit un log structuré. La catégorie issue du détail alimente la normalisation. |
+| Objectifs sur les 277 annonces | À valider serveur | Les mesures avant/après sont émises par `rescore_all.py`. Ce dépôt ne peut pas accéder à la base déployée : aucun taux après correction n’est déclaré avant exécution serveur. |
+
 ## Correctifs de recette v0.2.1
 
 | Exigence | État | Preuve / limite |
@@ -47,8 +60,8 @@
 
 | Exigence | État | Preuve / limite |
 |---|---|---|
-| Découverte endpoint détail | Fait | Résultats réels documentés dans `docs/vinted-api.md` ; trois endpoints JSON 404, page publique 200. |
-| Parseur détail | Fait | JSON-LD + hydratation : description, photos, marque, taille, état, catégorie, couleurs, compteurs et vendeur. Fixture de forme réelle testée. Les champs non publics restent `null`. |
+| Découverte endpoint détail | Fait | Résultats réels documentés dans `docs/vinted-api.md` ; variantes `svc-*`, ancien endpoint et gateway testées, puis page publique 200. |
+| Parseur détail | Fait | JSON-LD + hydratation Next/RSC actuelle : description, photos, marque, taille, état, catégorie, couleurs, compteurs et vendeur. Fixture et page active réelle validées. Les champs non publics restent `null`. |
 | Profil vendeur 24 h | Partiel | Résumé public de la page article stocké dans `seller_profiles` avec TTL 24 h. Aucun second endpoint profil stable n’a été trouvé/validé ; ancienneté/localisation/connexion peuvent manquer. |
 | File, débit, backoff | Fait | Enrichissements séquentiels avant score dans la file logique du scan ; limiteur partagé et backoff 403/429. État de file exposé. Test notification après enrichissement. |
 | Une fois sauf prix modifié | Fait | `enriched_at` + `enrichment_price`. |

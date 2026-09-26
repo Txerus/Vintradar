@@ -17,6 +17,7 @@ async def main() -> None:
     except VintedError as error:
         for request in client.request_history:
             print(f"URL: {request.url}")
+            print(f"Final URL: {request.final_url or request.url}")
             print(f"HTTP status: {request.status_code}")
             print(f"Headers sent (values redacted): {', '.join(request.headers)}")
             if request.response_body:
@@ -24,6 +25,7 @@ async def main() -> None:
         raise SystemExit(str(error)) from error
     for request in client.request_history:
         print(f"URL: {request.url}")
+        print(f"Final URL: {request.final_url or request.url}")
         print(f"HTTP status: {request.status_code}")
         print(f"Headers sent (values redacted): {', '.join(request.headers)}")
     payload = dataclasses.asdict(detail)

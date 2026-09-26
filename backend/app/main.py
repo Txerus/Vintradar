@@ -22,6 +22,24 @@ from app.worker import enrich_and_rescore
 app = FastAPI(title="VintRadar API", version="0.2.0")
 
 
+def _complete_pricing_explanation(value: Listing) -> dict:
+    payload = dict(value.pricing_explanation or {})
+    if payload.get("evaluated") is not True:
+        payload["evaluated"] = False
+        payload["reason"] = payload.get("reason") or value.enrichment_error or "recalcul du prix en attente"
+    payload.setdefault("price", {
+        "item": value.price,
+        "buyer_fee": value.buyer_fee,
+        "shipping": value.shipping_estimate,
+        "total": value.total_item_price,
+    })
+    payload.setdefault("product", {"key": None, "model": None, "confidence": 0, "text": None})
+    payload.setdefault("condition_segment", value.condition_segment)
+    payload.setdefault("window_days", 90)
+    payload.setdefault("external_references", [])
+    return payload
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": app.version}
@@ -115,7 +133,8 @@ async def _listing_payloads(db: AsyncSession, values: list[Listing]) -> list[dic
     output = []
     for value in values:
         payload = {column.name: getattr(value, column.name) for column in Listing.__table__.columns}
-        evaluated = bool((value.pricing_explanation or {}).get("evaluated"))
+        payload["pricing_explanation"] = _complete_pricing_explanation(value)
+        evaluated = bool(payload["pricing_explanation"].get("evaluated"))
         payload["pricing_evaluated"] = evaluated
         if not evaluated:
             payload["score_label"] = None
@@ -164,20 +183,7 @@ async def listing_pricing(lid: int, db: AsyncSession = Depends(session)):
     value = await db.get(Listing, lid)
     if not value:
         raise HTTPException(404)
-    explanation = value.pricing_explanation or {
-        "evaluated": False,
-        "reason": value.enrichment_error or "explication absente : recalcul en attente",
-        "price": {
-            "item": value.price,
-            "buyer_fee": value.buyer_fee,
-            "shipping": value.shipping_estimate,
-            "total": value.total_item_price,
-        },
-        "product": {"key": None, "model": None, "confidence": 0, "text": None},
-        "condition_segment": value.condition_segment,
-        "window_days": 90,
-        "external_references": [],
-    }
+    explanation = _complete_pricing_explanation(value)
     identifiers = [int(identifier) for identifier in explanation.get("comparable_ids", [])]
     comparables = list(await db.scalars(select(Listing).where(Listing.id.in_(identifiers)))) if identifiers else []
     return {

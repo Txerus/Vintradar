@@ -48,6 +48,8 @@ def test_ntfy_json_payload_accepts_unicode() -> None:
     assert payload["topic"]
     assert payload["click"] == "vintradar://item/12"
     assert payload["actions"][0]["url"] == listing.url
+    assert payload["priority"] == 5
+    assert notification_payload(listing, "GOOD")["priority"] == 3
 
 
 @pytest.mark.asyncio
@@ -68,10 +70,24 @@ async def test_ntfy_posts_json_to_root_without_unicode_headers() -> None:
         url="https://www.vinted.fr/items/12",
     )
     async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
-        await notify(listing, "DEAL", client=client)
+        assert await notify(listing, "DEAL", client=client) == 200
     assert captured["url"].rstrip("/") == "http://localhost:8080"
     assert "title" not in captured["headers"]
     assert captured["json"]["title"] == "🔥 Édition spéciale 🎮"
+
+
+@pytest.mark.asyncio
+async def test_ntfy_error_logs_response_body(capsys) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(400, text='{"code":40024,"error":"invalid request"}', request=request)
+
+    listing = SimpleNamespace(id=12, external_id="12", title="Test", price=1, currency="EUR")
+    async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as client:
+        with pytest.raises(httpx.HTTPStatusError):
+            await notify(listing, "GOOD", client=client)
+    output = capsys.readouterr().out
+    assert '"event": "ntfy_error"' in output
+    assert "invalid request" in output
 
 
 def test_paused_alert_is_never_due() -> None:

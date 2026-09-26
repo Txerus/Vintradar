@@ -131,6 +131,12 @@ def test_catalog_condition_parsing_one_two_inverted_and_accessibility() -> None:
             "accessibility_label": "État: Satisfaisant, Taille: Taille unique",
         },
     })[:2] == ("Taille unique", "Satisfaisant")
+    assert _catalog_summary({
+        "item_box": {
+            "second_line": "XL",
+            "accessibility_label": "État: État impeccable, Taille: XL",
+        },
+    })[:2] == ("XL", "État impeccable")
 
 
 def test_mixed_switch_fixture_never_cross_compares_product_types() -> None:
@@ -172,7 +178,12 @@ def test_condition_segments_and_whole_word_accent_insensitive_filters() -> None:
         exclude_terms = ["boîte vide"]
 
     assert condition_segment("Neuf avec étiquette") == "NEW_WITH_TAGS"
+    assert condition_segment("Neuf sans étiquette") == "NEW_WITHOUT_TAGS"
     assert condition_segment("Très bon état") == "VERY_GOOD"
+    assert condition_segment("Comme neuf") == "NEW_WITHOUT_TAGS"
+    assert condition_segment("Excellent état") == "VERY_GOOD"
+    assert condition_segment("Good condition") == "GOOD"
+    assert condition_segment("Usé") == "SATISFACTORY"
     assert allowed({"title": "Beau lego complet"}, Alert())
     assert not allowed({"title": "Arc de Legolas"}, Alert())
     assert not allowed({"title": "LEGO", "description": "Boite vide"}, Alert())

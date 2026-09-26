@@ -95,7 +95,7 @@ PY
 docker compose run --rm api python scripts/check_item.py "$ITEM_ID"
 ```
 
-Sortie attendue : URL `https://www.vinted.fr/items/<id>`, HTTP 200, champs JSON-LD/hydratation parsés et liste explicite des champs indisponibles. Une valeur absente est signalée ; elle n’est jamais inventée.
+Sortie attendue : sondes JSON de détail (404/403 tant qu’aucune variante n’est disponible), puis URL finale canonique `https://www.vinted.fr/items/<id>-…`, HTTP 200, champs JSON-LD/hydratation parsés et liste explicite des champs indisponibles. Une valeur absente est signalée ; elle n’est jamais inventée.
 
 Après au moins un scan, trouver un identifiant interne et expliquer son score :
 
@@ -125,10 +125,20 @@ docker compose logs --tail=100 migrate api worker
 
 Le service `migrate` doit terminer avec le code 0 avant le démarrage de l’API et du worker. Télécharger ensuite `VintRadar-latest-unsigned.ipa` depuis la pré-release `latest`, puis l’installer et le re-signer dans SideStore.
 
-Depuis la migration `0005`, `migrate` lance automatiquement `scripts/rescore_all.py --pending` après Alembic. Le premier redémarrage v0.2.1 peut donc durer : chaque annonce active héritée est relue à la cadence Vinted, puis reclassée et recalculée avant le démarrage de l’API. La progression apparaît sous la forme d’une ligne JSON `rescore_all` dans les logs de `migrate`.
+Le service `migrate` lance automatiquement `scripts/rescore_all.py --pending` après Alembic. La migration `0006` invalide les anciens scores et le premier redémarrage peut donc durer : chaque annonce active héritée est relue à la cadence Vinted, reclassée, complétée par une recherche ciblée si nécessaire, puis recalculée avant le démarrage de l’API. La ligne JSON finale `rescore_all` contient les mesures exactes `before` et `after`, dont les taux d’échec d’enrichissement et d’annonces non évaluées.
 
 Pour forcer ultérieurement un recalcul complet, y compris des annonces déjà à jour :
 
 ```bash
 docker compose run --rm api python scripts/rescore_all.py
 ```
+
+Pour rejouer uniquement les enrichissements encore en erreur et afficher, pour
+chaque requête, le statut HTTP, l’URL finale et l’extrait de réponse :
+
+```bash
+docker compose run --rm api python scripts/diagnose_enrichment.py --limit 100
+```
+
+Cette commande est en lecture seule. Ajouter `--apply` pour persister les fiches
+redevenues lisibles et recalculer leur score.

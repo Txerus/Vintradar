@@ -51,15 +51,19 @@ def condition_segment(condition: str | None) -> str | None:
     value = fold(condition or "")
     if not value:
         return None
-    if "neuf" in value and ("etiquette" in value or "scelle" in value):
-        return "NEW_WITH_TAGS"
-    if "neuf" in value:
+    if any(label in value for label in ("neuf sans etiquette", "new without tags", "new without tag")):
         return "NEW_WITHOUT_TAGS"
-    if "tres bon" in value:
+    if ("neuf" in value and ("avec etiquette" in value or "scelle" in value)) or any(
+        label in value for label in ("new with tags", "new with tag", "new sealed")
+    ):
+        return "NEW_WITH_TAGS"
+    if "neuf" in value or "comme neuf" in value or value == "new":
+        return "NEW_WITHOUT_TAGS"
+    if "tres bon" in value or "excellent etat" in value or "very good" in value:
         return "VERY_GOOD"
-    if "bon etat" in value or value == "bon":
+    if "bon etat" in value or value == "bon" or value == "good" or "good condition" in value:
         return "GOOD"
-    if "satisfaisant" in value:
+    if "satisfaisant" in value or "satisfactory" in value or "etat correct" in value or value == "use":
         return "SATISFACTORY"
     return None
 
