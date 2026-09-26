@@ -8,6 +8,7 @@ from app.config import settings
 from app.db import session
 from app.main import app
 from app.models import AlertListing, Base, Listing, ListingProductMatch, ListingSnapshot, ListingStatus, Product
+from app.vinted import ItemDetail
 
 
 @pytest.fixture
@@ -206,3 +207,66 @@ async def test_listings_history_flags_and_dashboard(api_client) -> None:
         match = await database.get(ListingProductMatch, listing_id)
         assert match.manual is True
         assert (await database.get(Product, match.product_id)).canonical_key == "console:switch2:oled-pack"
+
+
+@pytest.mark.asyncio
+async def test_empty_explanation_suppresses_badge_and_returns_unevaluated_payload(api_client) -> None:
+    client, sessions = api_client
+    async with sessions() as database:
+        listing = Listing(
+            external_id="legacy", title="Switch 2", description="", price=420,
+            total_item_price=430, url="https://www.vinted.fr/items/legacy",
+            score_label="DEAL", score_median=8, score_sample_count=29,
+            pricing_explanation={}, status=ListingStatus.ACTIVE,
+        )
+        database.add(listing)
+        await database.commit()
+        await database.refresh(listing)
+        identifier = listing.id
+    payload = (await client.get("/listings", headers=auth_headers())).json()[0]
+    assert payload["pricing_evaluated"] is False
+    assert payload["score_label"] is None
+    pricing = (await client.get(f"/listings/{identifier}/pricing", headers=auth_headers())).json()
+    assert pricing["explanation"]["evaluated"] is False
+    assert "recalcul" in pricing["explanation"]["reason"]
+
+
+@pytest.mark.asyncio
+async def test_manual_enrichment_endpoint_persists_details_and_recalculates(api_client, monkeypatch) -> None:
+    import importlib
+    main_module = importlib.import_module("app.main")
+
+    class Client:
+        async def detail(self, external_id):
+            return ItemDetail(
+                external_id=external_id, title="Volant Nacon Switch 2",
+                description="Volant compatible Nintendo Switch 2", photos=[], brand="Nacon",
+                size=None, condition="Très bon état", category_id="accessory",
+                category_name="Accessoires jeux vidéo", category_path=["Jeux vidéo", "Accessoires"],
+                colors=["Noir"], published_at=None, favourite_count=3, view_count=21,
+                shipping=None, status="ACTIVE", seller={},
+                source_url=f"https://www.vinted.fr/items/{external_id}",
+            )
+
+    monkeypatch.setattr(main_module, "VintedClient", Client)
+    client, sessions = api_client
+    async with sessions() as database:
+        listing = Listing(
+            external_id="wheel", title="Volant", description="", price=8,
+            total_item_price=9, url="https://www.vinted.fr/items/wheel",
+            status=ListingStatus.ACTIVE,
+        )
+        database.add(listing)
+        await database.commit()
+        await database.refresh(listing)
+        identifier = listing.id
+    response = await client.post(f"/listings/{identifier}/enrich", headers=auth_headers())
+    assert response.status_code == 200
+    assert response.json()["description"].startswith("Volant compatible")
+    assert response.json()["category_name"] == "Accessoires jeux vidéo"
+    assert response.json()["colors"] == ["Noir"]
+    assert response.json()["enrichment_error"] is None
+    async with sessions() as database:
+        match = await database.get(ListingProductMatch, identifier)
+        product = await database.get(Product, match.product_id)
+        assert product.canonical_key == "accessory:switch2:steering-wheel"

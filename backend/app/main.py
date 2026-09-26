@@ -16,6 +16,7 @@ from app.schemas import (
 )
 from app.security import require_token
 from app.vinted import VintedClient, VintedError
+from app.worker import enrich_and_rescore
 
 
 app = FastAPI(title="VintRadar API", version="0.2.0")
@@ -114,6 +115,14 @@ async def _listing_payloads(db: AsyncSession, values: list[Listing]) -> list[dic
     output = []
     for value in values:
         payload = {column.name: getattr(value, column.name) for column in Listing.__table__.columns}
+        evaluated = bool((value.pricing_explanation or {}).get("evaluated"))
+        payload["pricing_evaluated"] = evaluated
+        if not evaluated:
+            payload["score_label"] = None
+            payload["score_percentile"] = None
+            payload["score_median"] = None
+            payload["score_sample_count"] = 0
+            payload["score_confidence"] = None
         payload["alert_ids"] = sorted(links.get(value.id, []))
         payload["alert_id"] = payload["alert_ids"][0] if payload["alert_ids"] else None
         output.append(payload)
@@ -155,17 +164,42 @@ async def listing_pricing(lid: int, db: AsyncSession = Depends(session)):
     value = await db.get(Listing, lid)
     if not value:
         raise HTTPException(404)
-    identifiers = [int(identifier) for identifier in value.pricing_explanation.get("comparable_ids", [])]
+    explanation = value.pricing_explanation or {
+        "evaluated": False,
+        "reason": value.enrichment_error or "explication absente : recalcul en attente",
+        "price": {
+            "item": value.price,
+            "buyer_fee": value.buyer_fee,
+            "shipping": value.shipping_estimate,
+            "total": value.total_item_price,
+        },
+        "product": {"key": None, "model": None, "confidence": 0, "text": None},
+        "condition_segment": value.condition_segment,
+        "window_days": 90,
+        "external_references": [],
+    }
+    identifiers = [int(identifier) for identifier in explanation.get("comparable_ids", [])]
     comparables = list(await db.scalars(select(Listing).where(Listing.id.in_(identifiers)))) if identifiers else []
     return {
         "listing_id": value.id,
-        "explanation": value.pricing_explanation,
+        "explanation": explanation,
         "comparables": [{
             "id": item.id, "title": item.title, "total_item_price": item.total_item_price,
             "condition": item.condition, "image_url": item.image_url, "status": item.status,
             "first_seen_at": item.first_seen_at, "url": item.url,
         } for item in comparables],
     }
+
+
+@app.post("/listings/{lid}/enrich", response_model=ListingOut, dependencies=[Depends(require_token)])
+async def enrich_listing_endpoint(lid: int, db: AsyncSession = Depends(session)):
+    value = await db.get(Listing, lid)
+    if not value:
+        raise HTTPException(404, "Annonce introuvable")
+    await enrich_and_rescore(db, value, VintedClient())
+    await db.commit()
+    await db.refresh(value)
+    return (await _listing_payloads(db, [value]))[0]
 
 
 @app.put("/listings/{lid}/product", dependencies=[Depends(require_token)])

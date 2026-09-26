@@ -110,19 +110,70 @@ def _edition(text: str) -> str:
     return "standard"
 
 
-def _console(text: str, platform: str, flags: frozenset[str]) -> Normalized | None:
+ACCESSORY_TYPES = (
+    ("steering-wheel", r"\b(?:volant|racing wheel)\b"),
+    ("controller", r"\b(?:manette|controller|gamepad)\b"),
+    ("joy-con", r"\b(?:joy[ -]?con)\b"),
+    ("dock", r"\b(?:dock|station d accueil)\b"),
+    ("case", r"\b(?:housse|etui|case)\b"),
+    ("screen-protector", r"\b(?:protection d ecran|verre trempe)\b"),
+    ("charger", r"\b(?:chargeur|charger)\b"),
+    ("cable", r"\b(?:cable|cordon)\b"),
+    ("grip", r"\b(?:grip|poignee)\b"),
+    ("stand", r"\b(?:support|stand)\b"),
+    ("memory-card", r"\b(?:carte memoire|micro ?sd|memory card)\b"),
+)
+
+
+def _accessory(
+    text: str,
+    platform: str | None,
+    category: str,
+    flags: frozenset[str],
+) -> Normalized | None:
     plain = fold(text)
-    console_words = r"\b(?:console|pack|bundle|edition|go|gb|to|tb|manette)\b"
+    category_plain = fold(category)
+    if "console" in category_plain or re.search(r"\bconsole\b", plain):
+        return None
+    accessory_type = next((name for name, pattern in ACCESSORY_TYPES if re.search(pattern, plain)), None)
+    category_is_accessory = any(word in category_plain for word in ("accessoire", "peripherique", "gaming"))
+    if not accessory_type or (not platform and not category_is_accessory):
+        return None
+    platform_key = platform or "unknown"
+    confidence = .95 if platform else .7
+    return Normalized(
+        f"accessory:{platform_key}:{accessory_type}", None, accessory_type, "accessory",
+        flags, confidence, text[:200],
+        {"platform": platform_key, "accessory_type": accessory_type, "product_type": "accessory"},
+    )
+
+
+def _console(text: str, platform: str, category: str, flags: frozenset[str]) -> Normalized | None:
+    plain = fold(text)
+    category_plain = fold(category)
+    console_words = r"\b(?:console|pack|bundle|edition|go|gb|to|tb)\b"
     game_words = r"\b(?:jeu|game|cartouche)\b"
-    if not re.search(console_words, plain) or (re.search(game_words, plain) and "console" not in plain):
+    category_is_console = any(word in category_plain for word in ("console", "systeme de jeu"))
+    without_platform = re.sub(
+        r"\b(?:nintendo|switch\s*2|switch|ps\s*5|playstation\s*5|xbox(?:\s+series)?\s*[xs])\b",
+        " ", plain,
+    )
+    without_platform = re.sub(
+        r"\b(?:neuf|neuve|nouveau|nouvelle|avec|sans|etiquette|scellee?|occasion|tres|bon|etat)\b|\d+\s*(?:go|gb|to|tb)",
+        " ", without_platform,
+    )
+    platform_only = not re.findall(r"[a-z0-9]+", without_platform)
+    if not (category_is_console or platform_only or re.search(console_words, plain)):
+        return None
+    if re.search(game_words, plain) and not (category_is_console or "console" in plain):
         return None
     capacity_match = re.search(r"\b(\d+)\s*(go|gb|to|tb)\b", plain)
     capacity = "".join(capacity_match.groups()) if capacity_match else None
     pack = "pack" if re.search(r"\b(?:pack|bundle|avec jeu)\b", plain) else "console"
     model = "-".join(filter(None, [platform, capacity, pack]))
     return Normalized(
-        f"console:{model}", None, model, "console", flags, 0.9,
-        text[:200], {"platform": platform, "capacity": capacity, "pack": pack},
+        f"console:{model}", None, model, "console", flags, 0.95,
+        text[:200], {"platform": platform, "capacity": capacity, "pack": pack, "product_type": "console"},
     )
 
 
@@ -134,8 +185,11 @@ def _generic(title: str, brand: str | None, category: str | None, size: str | No
     model_tokens = "-".join(tokens[:6]) or "modele-inconnu"
     relevant_size = slug(size or "") if category and any(x in fold(category) for x in ("vetement", "chauss", "mode")) else ""
     key = ":".join(filter(None, ["generic", brand_slug, category_slug, model_tokens, relevant_size]))
-    confidence = 0.45 if brand and category and model_tokens != "modele-inconnu" else 0.2
-    return Normalized(key, brand, model_tokens, category_slug, flags, confidence, title[:200], {"size": size})
+    confidence = 0.7 if brand and category and model_tokens != "modele-inconnu" else 0.2
+    return Normalized(
+        key, brand, model_tokens, category_slug, flags, confidence, title[:200],
+        {"size": size, "product_type": "other", "category_confident": bool(category)},
+    )
 
 
 def normalize(
@@ -162,8 +216,11 @@ def normalize(
 
     platform = _platform(text)
     category_plain = fold(category or "")
+    accessory = _accessory(text, platform, category or "", flags)
+    if accessory:
+        return accessory
     if platform:
-        console = _console(text, platform, flags)
+        console = _console(text, platform, category or "", flags)
         if console:
             return console
         looks_like_game = (
@@ -171,12 +228,14 @@ def normalize(
             or re.search(r"\b(?:jeu|game|cartouche|pokemon|mario|zelda)\b", fold(text))
         )
         if looks_like_game:
-            game = _game_title(text, platform)
+            game = _game_title(title, platform)
+            if not game or game == "jeu":
+                game = _game_title(description, platform)
             if game:
                 edition = _edition(text)
                 return Normalized(
                     f"game:{platform}:{game}:{edition}", brand, game, "game", flags, 0.9,
-                    title[:200], {"platform": platform, "edition": edition},
+                    title[:200], {"platform": platform, "edition": edition, "product_type": "game"},
                 )
 
     return _generic(title, brand, category, size, flags)

@@ -2,6 +2,18 @@
 
 État fondé sur le code et les tests du dépôt. « Partiel » signale explicitement ce qui dépend d’une API privée, d’un identifiant absent ou d’une validation sur le serveur réel.
 
+## Correctifs de recette v0.2.1
+
+| Exigence | État | Preuve / limite |
+|---|---|---|
+| Recalcul des données v0.1 | Fait | Migration `0005` invalide immédiatement les badges, puis `rescore_all.py --pending` ré-enrichit, re-normalise tout le corpus actif et recalcule en deux phases. Test de régression sur sept lignes legacy. |
+| État/taille du catalogue | Fait | Les cinq états sont reconnus indépendamment de leur position et `accessibility_label` est prioritaire. Tests une partie, deux parties, ordre inversé et libellé accessible. |
+| Consoles et accessoires | Fait | Titres réduits à la plateforme reconnus comme consoles ; normaliseur accessoires exécuté avant les jeux. Fixture console Switch 2/jeu Pokémon/volant Nacon avec trois pools distincts. |
+| Badge sans explication | Fait | L’API neutralise les champs de score si `evaluated != true`; l’iOS masque alors la puce. Test API avec un faux score v0.1. |
+| Erreurs de pricing iOS | Fait | État explicite chargé/échec, délai maximal de 12 s et bouton Réessayer. Une explication absente devient une réponse non évaluée structurée côté API. |
+| Français iOS | Fait | Formateurs monétaires, relatifs et calendaires forcés en `fr_FR`; tests `8,05 €` et treize heures. |
+| Relance enrichissement | Fait | Erreur persistée, `POST /listings/{id}/enrich`, bouton iOS et actualisation description/catégorie/couleurs. Test API. |
+
 ## A — Corrections du score
 
 | Exigence | État | Preuve / limite |

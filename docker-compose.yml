@@ -37,7 +37,7 @@ services:
   migrate:
     build: ./backend
     env_file: .env
-    command: alembic upgrade head
+    command: sh -c "alembic upgrade head && python scripts/rescore_all.py --pending"
     depends_on:
       postgres: {condition: service_healthy}
   ntfy:

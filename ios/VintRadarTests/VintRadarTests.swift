@@ -2,6 +2,7 @@ import XCTest
 @testable import VintRadar
 
 final class VintRadarTests: XCTestCase {
+    @MainActor
     func testNewListingDTODecodingAndVintedTotal() throws {
         let json = """
         {
@@ -14,8 +15,10 @@ final class VintRadarTests: XCTestCase {
           "seller_reviews_count":12,"seller_location":"Paris","seller_created_at":null,
           "seller_last_login_at":null,"condition":"Très bon état","condition_segment":"VERY_GOOD",
           "size":null,"favourite_count":8,"view_count":40,"published_at":null,
+          "enrichment_error":null,
           "score_label":"DEAL","score_percentile":0.1,"score_median":52,
           "score_sample_count":17,"score_confidence":"HIGH","pricing_explanation":{},
+          "pricing_evaluated":false,"scoring_version":0,
           "status":"ACTIVE","first_seen_at":"2026-09-19T12:00:00Z",
           "updated_at":"2026-09-19T12:00:00Z"
         }
@@ -27,6 +30,8 @@ final class VintRadarTests: XCTestCase {
         XCTAssertEqual(listing.total, 32.2)
         XCTAssertEqual(listing.alertIds, [1, 2])
         XCTAssertEqual(listing.categoryPath, ["Enfants", "Jeux"])
+        XCTAssertEqual(listing.pricingEvaluated, false)
+        XCTAssertEqual(AppModel().score(for: listing).label, .unknown)
     }
 
     func testServerScoreIsRepresentable() {
@@ -86,6 +91,38 @@ final class VintRadarTests: XCTestCase {
         XCTAssertEqual(
             InterestSignal.text(history: snapshots, currentFavorites: 14, now: start.addingTimeInterval(7200)),
             "+12 favoris en 2 h"
+        )
+    }
+
+    func testFrenchCurrencyRelativeDateAndUnevaluatedReason() {
+        XCTAssertTrue(FrenchFormat.currency(8.05, code: "EUR").contains("8,05"))
+        let now = Date(timeIntervalSince1970: 14 * 3600)
+        let thirteenHoursAgo = Date(timeIntervalSince1970: 3600)
+        let relative = FrenchFormat.relative(thirteenHoursAgo, relativeTo: now).lowercased()
+        XCTAssertTrue(relative.contains("13"))
+        XCTAssertTrue(relative.contains("heure"))
+
+        let explanation = PricingExplanationDTO(
+            evaluated: false,
+            reason: "catégorie non déterminée avec confiance",
+            price: PriceBreakdownDTO(item: 8, buyerFee: 0.05, shipping: 0, total: 8.05),
+            product: RecognizedProductDTO(key: nil, model: nil, confidence: 0, text: nil),
+            conditionSegment: nil,
+            windowDays: 90,
+            count: nil,
+            median: nil,
+            p20: nil,
+            p75: nil,
+            percentile: nil,
+            confidence: nil,
+            fallbackLevel: nil,
+            fallbackLabel: nil,
+            comparableIds: nil,
+            externalReferences: []
+        )
+        XCTAssertEqual(
+            PricingPhrase.french(explanation),
+            "Prix non évalué : catégorie non déterminée avec confiance."
         )
     }
 

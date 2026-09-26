@@ -1,8 +1,10 @@
+import json
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
 from app.normalizer import condition_segment, normalize
 from app.pricing import Comparable, score_listing
-from app.worker import allowed, score_reaches_threshold
+from app.worker import _catalog_summary, allowed, score_reaches_threshold
 
 
 NOW = datetime(2026, 9, 19, tzinfo=timezone.utc)
@@ -103,6 +105,65 @@ def test_video_game_variants_are_equal_and_console_is_distinct() -> None:
     assert first.key == second.key == "game:switch2:pokemon-legendes-za:standard"
     assert console.key.startswith("console:")
     assert console.key != first.key
+
+
+def test_console_platform_only_and_accessory_precedes_game() -> None:
+    for title in ("Switch 2", "Nintendo Switch 2", "PS5", "Nintendo switch 2 neuve"):
+        assert normalize(title, category="Consoles").key.startswith("console:")
+    accessory = normalize("Volant Nacon Switch 2", category="Accessoires jeux vidéo")
+    assert accessory.key == "accessory:switch2:steering-wheel"
+    assert accessory.category_key == "accessory"
+
+
+def test_catalog_condition_parsing_one_two_inverted_and_accessibility() -> None:
+    assert _catalog_summary({"item_box": {"second_line": "Neuf avec étiquette"}})[:2] == (
+        None, "Neuf avec étiquette",
+    )
+    assert _catalog_summary({"item_box": {"second_line": "XL · Très bon état"}})[:2] == (
+        "XL", "Très bon état",
+    )
+    assert _catalog_summary({"item_box": {"second_line": "Bon état · 42"}})[:2] == (
+        "42", "Bon état",
+    )
+    assert _catalog_summary({
+        "item_box": {
+            "second_line": "Valeur ambiguë",
+            "accessibility_label": "État: Satisfaisant, Taille: Taille unique",
+        },
+    })[:2] == ("Taille unique", "Satisfaisant")
+
+
+def test_mixed_switch_fixture_never_cross_compares_product_types() -> None:
+    fixture = Path(__file__).parent / "fixtures/vinted/mixed_switch2.json"
+    items = json.loads(fixture.read_text())["items"]
+    normalized = [
+        normalize(item["title"], item["description"], category=item["category"])
+        for item in items
+    ]
+    assert [value.key for value in normalized] == [
+        "console:switch2-console",
+        "game:switch2:pokemon-legendes-za:standard",
+        "accessory:switch2:steering-wheel",
+    ]
+    assert len({value.category_key for value in normalized}) == 3
+
+    candidates = []
+    identifier = 1
+    for product, item in zip(normalized, items, strict=True):
+        for offset in range(6):
+            candidates.append(comparable(
+                identifier,
+                item["price"] + offset,
+                product=product.key,
+                category=product.category_key,
+                brand=product.brand or "Nintendo",
+                condition="NEW_WITH_TAGS" if product.category_key != "accessory" else "VERY_GOOD",
+            ))
+            identifier += 1
+    for start in (0, 6, 12):
+        score = score_listing(candidates[start], candidates, now=NOW)
+        assert score is not None
+        assert all(candidates[index - 1].product_key == candidates[start].product_key for index in score.comparable_ids)
 
 
 def test_condition_segments_and_whole_word_accent_insensitive_filters() -> None:

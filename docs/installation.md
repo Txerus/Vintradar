@@ -124,3 +124,11 @@ docker compose logs --tail=100 migrate api worker
 ```
 
 Le service `migrate` doit terminer avec le code 0 avant le démarrage de l’API et du worker. Télécharger ensuite `VintRadar-latest-unsigned.ipa` depuis la pré-release `latest`, puis l’installer et le re-signer dans SideStore.
+
+Depuis la migration `0005`, `migrate` lance automatiquement `scripts/rescore_all.py --pending` après Alembic. Le premier redémarrage v0.2.1 peut donc durer : chaque annonce active héritée est relue à la cadence Vinted, puis reclassée et recalculée avant le démarrage de l’API. La progression apparaît sous la forme d’une ligne JSON `rescore_all` dans les logs de `migrate`.
+
+Pour forcer ultérieurement un recalcul complet, y compris des annonces déjà à jour :
+
+```bash
+docker compose run --rm api python scripts/rescore_all.py
+```

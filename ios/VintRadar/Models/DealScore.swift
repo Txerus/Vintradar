@@ -1,5 +1,35 @@
 import Foundation
 
+enum FrenchFormat {
+    static let locale = Locale(identifier: "fr_FR")
+
+    static func currency(_ value: Double, code: String) -> String {
+        value.formatted(.currency(code: code).locale(locale))
+    }
+
+    static func relative(_ date: Date, relativeTo reference: Date = Date()) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = locale
+        formatter.unitsStyle = .full
+        return formatter.localizedString(for: date, relativeTo: reference)
+    }
+
+    static func dateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
+    static func monthYear(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = locale
+        formatter.setLocalizedDateFormatFromTemplate("MMMM yyyy")
+        return formatter.string(from: date)
+    }
+}
+
 enum DealLabel: String, CaseIterable, Codable, Sendable {
     case deal = "DEAL"
     case good = "GOOD"
@@ -43,7 +73,7 @@ struct DealScore: Hashable, Sendable {
         guard let percentile, let median else {
             return "Pas assez d’annonces comparables pour calculer un score fiable."
         }
-        return "Prix situé au percentile \(Int((percentile * 100).rounded())) sur \(sampleCount) annonces comparables. Médiane : \(median.formatted(.currency(code: "EUR"))). Confiance \(confidence.lowercased())."
+        return "Prix situé au percentile \(Int((percentile * 100).rounded())) sur \(sampleCount) annonces comparables. Médiane : \(FrenchFormat.currency(median, code: "EUR")). Confiance \(confidence.lowercased())."
     }
 
     static func calculate(price: Double, comparablePrices: [Double]) -> DealScore {
@@ -71,10 +101,10 @@ enum PricingPhrase {
               let count = explanation.count else {
             return "Prix non évalué : \(explanation.reason ?? "pas assez d’annonces comparables")."
         }
-        let total = explanation.price.total.formatted(.currency(code: currency))
-        let item = explanation.price.item.formatted(.currency(code: currency))
-        let fee = explanation.price.buyerFee.formatted(.currency(code: currency))
-        let medianText = median.formatted(.currency(code: currency))
+        let total = FrenchFormat.currency(explanation.price.total, code: currency)
+        let item = FrenchFormat.currency(explanation.price.item, code: currency)
+        let fee = FrenchFormat.currency(explanation.price.buyerFee, code: currency)
+        let medianText = FrenchFormat.currency(median, code: currency)
         let below = Int(abs((explanation.price.total / median - 1) * 100).rounded())
         let direction = explanation.price.total <= median ? "sous" : "au-dessus de"
         let confidence: String

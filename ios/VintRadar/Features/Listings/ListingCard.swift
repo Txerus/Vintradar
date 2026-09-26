@@ -26,15 +26,17 @@ struct ListingCard: View {
                         Image(systemName: "heart.fill").foregroundStyle(.red).accessibilityLabel("Favori")
                     }
                 }
-                Text(item.total, format: .currency(code: item.currency)).font(.title3.bold())
+                Text(FrenchFormat.currency(item.total, code: item.currency)).font(.title3.bold())
                 HStack {
                     Text(item.condition ?? "État non précisé")
                     Text("·")
-                    Text(item.firstSeenAt, format: .relative(presentation: .named))
+                    Text(FrenchFormat.relative(item.firstSeenAt))
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
-                ScoreBadge(score: score)
+                if score.label != .unknown {
+                    ScoreBadge(score: score)
+                }
                 Text(shortReason)
                     .font(.caption.weight(.medium))
                     .foregroundStyle(.secondary)

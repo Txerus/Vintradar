@@ -51,6 +51,8 @@ async def main() -> None:
         "category_id",
         "condition_segment",
         "pricing_explanation",
+        "enrichment_error",
+        "scoring_version",
         "first_seen_at",
     }
     missing_columns = expected_listing_columns - columns

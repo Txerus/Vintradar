@@ -1,0 +1,28 @@
+{
+  "items": [
+    {
+      "id": "console-1",
+      "title": "Nintendo Switch 2 neuve",
+      "description": "Console Nintendo Switch 2 complète",
+      "category": "Consoles",
+      "condition": "Neuf avec étiquette",
+      "price": 420
+    },
+    {
+      "id": "game-1",
+      "title": "Pokémon Légendes Z-A Switch 2",
+      "description": "Jeu Nintendo Switch 2 complet en boîte",
+      "category": "Jeux vidéo",
+      "condition": "Neuf avec étiquette",
+      "price": 37
+    },
+    {
+      "id": "accessory-1",
+      "title": "Volant Nacon Switch 2",
+      "description": "Volant gaming compatible Nintendo Switch 2",
+      "category": "Accessoires jeux vidéo",
+      "condition": "Très bon état",
+      "price": 8
+    }
+  ]
+}

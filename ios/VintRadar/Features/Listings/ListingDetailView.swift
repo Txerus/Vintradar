@@ -2,18 +2,28 @@ import Charts
 import SwiftUI
 
 struct ListingDetailView: View {
+    private enum PricingState: Equatable {
+        case loading
+        case loaded
+        case failed(String)
+    }
+
     @Environment(AppModel.self) private var model
     let item: ListingDTO
     @State private var history: [ListingSnapshotDTO] = []
     @State private var pricing: PricingDTO?
+    @State private var pricingState: PricingState = .loading
+    @State private var enrichedItem: ListingDTO?
+    @State private var enriching = false
     @State private var showCorrection = false
     @State private var correctedKey = ""
 
     private var score: DealScore { model.score(for: item) }
     private var comparablePrices: [Double] { pricing?.comparables.map(\.totalItemPrice).sorted() ?? [] }
     private var galleryURLs: [URL] {
-        let storedImages = item.imageUrls ?? []
-        let values = storedImages.isEmpty ? [item.imageUrl].compactMap { $0 } : storedImages
+        let displayed = enrichedItem ?? item
+        let storedImages = displayed.imageUrls ?? []
+        let values = storedImages.isEmpty ? [displayed.imageUrl].compactMap { $0 } : storedImages
         return values.compactMap(URL.init).reduce(into: []) { result, url in
             if !result.contains(url) { result.append(url) }
         }
@@ -55,10 +65,8 @@ struct ListingDetailView: View {
         }
         .task {
             await model.setSeen(item)
-            async let loadedHistory = model.history(for: item)
-            async let loadedPricing = model.pricing(for: item)
-            history = await loadedHistory
-            pricing = await loadedPricing
+            history = await model.history(for: item)
+            await loadPricing()
         }
         .sheet(isPresented: $showCorrection) { correctionSheet }
     }
@@ -90,11 +98,13 @@ struct ListingDetailView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ScoreBadge(score: score)
+            if score.label != .unknown {
+                ScoreBadge(score: score)
+            }
             Text(item.title).font(.title.bold())
-            Text(item.total, format: .currency(code: item.currency))
+            Text(FrenchFormat.currency(item.total, code: item.currency))
                 .font(.system(.largeTitle, design: .rounded, weight: .bold))
-            Text("Détectée \(item.firstSeenAt.formatted(.relative(presentation: .named)))")
+            Text("Détectée \(FrenchFormat.relative(item.firstSeenAt))")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -103,11 +113,11 @@ struct ListingDetailView: View {
     private var priceBreakdown: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Prix total estimé").font(.headline)
-            LabeledContent("Article", value: item.price.formatted(.currency(code: item.currency)))
-            LabeledContent("Livraison estimée", value: item.shippingEstimate.formatted(.currency(code: item.currency)))
-            LabeledContent("Protection acheteur", value: item.buyerFee.formatted(.currency(code: item.currency)))
+            LabeledContent("Article", value: FrenchFormat.currency(item.price, code: item.currency))
+            LabeledContent("Livraison estimée", value: FrenchFormat.currency(item.shippingEstimate, code: item.currency))
+            LabeledContent("Protection acheteur", value: FrenchFormat.currency(item.buyerFee, code: item.currency))
             Divider()
-            LabeledContent("Total", value: item.total.formatted(.currency(code: item.currency))).fontWeight(.semibold)
+            LabeledContent("Total", value: FrenchFormat.currency(item.total, code: item.currency)).fontWeight(.semibold)
         }
         .padding()
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
@@ -116,8 +126,23 @@ struct ListingDetailView: View {
     private var scoreSection: some View {
         VStack(alignment: .leading, spacing: 10) {
             Label("Pourquoi ce prix ?", systemImage: "info.circle.fill").font(.headline)
-            Text(pricing.map { PricingPhrase.french($0.explanation, currency: item.currency) } ?? "Chargement de l’explication…")
+            switch pricingState {
+            case .loading:
+                HStack {
+                    ProgressView()
+                    Text("Chargement de l’explication…")
+                }
                 .foregroundStyle(.secondary)
+            case .loaded:
+                Text(pricing.map { PricingPhrase.french($0.explanation, currency: item.currency) }
+                     ?? "Prix non évalué : explication absente.")
+                    .foregroundStyle(.secondary)
+            case .failed(let reason):
+                Label("Prix non évalué : \(reason)", systemImage: "exclamationmark.triangle")
+                    .foregroundStyle(.secondary)
+                Button("Réessayer") { Task { await loadPricing(force: true) } }
+                    .buttonStyle(.bordered)
+            }
             if let product = pricing?.explanation.product, let key = product.key {
                 Button {
                     correctedKey = key
@@ -133,7 +158,7 @@ struct ListingDetailView: View {
             ForEach(pricing?.explanation.externalReferences ?? [], id: \.self) { reference in
                 if let value = reference.value {
                     LabeledContent(externalSourceName(reference.source)) {
-                        Text(value, format: .currency(code: reference.currency ?? "EUR"))
+                        Text(FrenchFormat.currency(value, code: reference.currency ?? "EUR"))
                     }
                     .font(.subheadline)
                 }
@@ -157,7 +182,7 @@ struct ListingDetailView: View {
                                         .font(.caption).foregroundStyle(.secondary)
                                 }
                                 Spacer()
-                                Text(comparable.totalItemPrice, format: .currency(code: item.currency))
+                                Text(FrenchFormat.currency(comparable.totalItemPrice, code: item.currency))
                                     .fontWeight(.semibold)
                             }
                         }
@@ -216,17 +241,20 @@ struct ListingDetailView: View {
     }
 
     private var detailsSection: some View {
+        let displayed = enrichedItem ?? item
         VStack(alignment: .leading, spacing: 12) {
             Text("Caractéristiques").font(.headline)
-            LabeledContent("État", value: item.condition ?? "Non précisé")
-            LabeledContent("Taille", value: item.size ?? "Non précisée")
-            LabeledContent("Marque", value: item.brand ?? "Non précisée")
-            LabeledContent("Catégorie", value: item.categoryPath?.joined(separator: " › ") ?? item.categoryName ?? "Non précisée")
-            LabeledContent("Couleurs", value: item.colors?.joined(separator: ", ") ?? "Non précisées")
-            if let date = item.publishedAt { LabeledContent("Mise en ligne", value: date.formatted()) }
-            if let favorites = item.favouriteCount { LabeledContent("Favoris", value: "\(favorites)") }
-            if let views = item.viewCount { LabeledContent("Vues", value: "\(views)") }
-            if let signal = InterestSignal.text(history: history, currentFavorites: item.favouriteCount) {
+            LabeledContent("État", value: displayed.condition ?? "Non précisé")
+            LabeledContent("Taille", value: displayed.size ?? "Non précisée")
+            LabeledContent("Marque", value: displayed.brand ?? "Non précisée")
+            LabeledContent("Catégorie", value: displayed.categoryPath?.joined(separator: " › ") ?? displayed.categoryName ?? "Non précisée")
+            LabeledContent("Couleurs", value: displayed.colors?.joined(separator: ", ") ?? "Non précisées")
+            if let date = displayed.publishedAt {
+                LabeledContent("Mise en ligne", value: FrenchFormat.dateTime(date))
+            }
+            if let favorites = displayed.favouriteCount { LabeledContent("Favoris", value: "\(favorites)") }
+            if let views = displayed.viewCount { LabeledContent("Vues", value: "\(views)") }
+            if let signal = InterestSignal.text(history: history, currentFavorites: displayed.favouriteCount) {
                 Label(signal, systemImage: "arrow.up.right")
                     .foregroundStyle(.orange)
             }
@@ -238,28 +266,44 @@ struct ListingDetailView: View {
     }
 
     @ViewBuilder private var descriptionSection: some View {
-        if !item.description.isEmpty {
+        let displayed = enrichedItem ?? item
+        if !displayed.description.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Description").font(.headline)
-                Text(item.description).textSelection(.enabled)
+                Text(displayed.description).textSelection(.enabled)
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Description").font(.headline)
+                Label(
+                    "Détails indisponibles : \(displayed.enrichmentError ?? "l’enrichissement n’a pas encore abouti").",
+                    systemImage: "exclamationmark.triangle"
+                )
+                .foregroundStyle(.secondary)
+                Button(enriching ? "Enrichissement…" : "Relancer l’enrichissement") {
+                    Task { await retryEnrichment() }
+                }
+                .buttonStyle(.bordered)
+                .disabled(enriching)
             }
         }
     }
 
     private var sellerSection: some View {
+        let displayed = enrichedItem ?? item
         VStack(alignment: .leading, spacing: 8) {
             Text("Vendeur").font(.headline)
-            if let sellerName = item.sellerName {
+            if let sellerName = displayed.sellerName {
                 Label(sellerName, systemImage: "person.crop.circle.fill")
-                if let rating = item.sellerRating {
+                if let rating = displayed.sellerRating {
                     LabeledContent("Évaluation", value: rating.formatted(.number.precision(.fractionLength(1))))
                 }
-                if let reviews = item.sellerReviewsCount {
+                if let reviews = displayed.sellerReviewsCount {
                     LabeledContent("Avis", value: "\(reviews)")
                 }
-                if let location = item.sellerLocation { LabeledContent("Localisation", value: location) }
-                if let since = item.sellerCreatedAt { LabeledContent("Membre depuis", value: since.formatted(.dateTime.year().month())) }
-                if let lastLogin = item.sellerLastLoginAt { LabeledContent("Dernière connexion", value: lastLogin.formatted(.relative(presentation: .named))) }
+                if let location = displayed.sellerLocation { LabeledContent("Localisation", value: location) }
+                if let since = displayed.sellerCreatedAt { LabeledContent("Membre depuis", value: FrenchFormat.monthYear(since)) }
+                if let lastLogin = displayed.sellerLastLoginAt { LabeledContent("Dernière connexion", value: FrenchFormat.relative(lastLogin)) }
             } else {
                 Label("Informations non fournies pour cette annonce.", systemImage: "person.crop.circle.badge.questionmark")
                     .font(.subheadline)
@@ -296,7 +340,7 @@ struct ListingDetailView: View {
                     Button("Enregistrer la correction") {
                         Task {
                             if await model.correctProduct(item, key: correctedKey, exclude: false) {
-                                pricing = await model.pricing(for: item)
+                                await loadPricing(force: true)
                                 showCorrection = false
                             }
                         }
@@ -304,7 +348,7 @@ struct ListingDetailView: View {
                     Button("Exclure des statistiques", role: .destructive) {
                         Task {
                             if await model.correctProduct(item, key: nil, exclude: true) {
-                                pricing = await model.pricing(for: item)
+                                await loadPricing(force: true)
                                 showCorrection = false
                             }
                         }
@@ -336,6 +380,30 @@ struct ListingDetailView: View {
         case "brickset_retail": "Prix neuf officiel"
         case "pricecharting": "Référence indicative (marché US/PAL, USD converti)"
         default: source
+        }
+    }
+
+    @MainActor
+    private func loadPricing(force: Bool = false) async {
+        pricingState = .loading
+        do {
+            pricing = try await model.pricing(for: enrichedItem ?? item, force: force)
+            pricingState = .loaded
+        } catch {
+            pricing = nil
+            pricingState = .failed(error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    private func retryEnrichment() async {
+        enriching = true
+        defer { enriching = false }
+        do {
+            enrichedItem = try await model.enrich(enrichedItem ?? item)
+            await loadPricing(force: true)
+        } catch {
+            pricingState = .failed("Enrichissement impossible : \(error.localizedDescription)")
         }
     }
 }

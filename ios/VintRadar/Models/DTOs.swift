@@ -75,11 +75,14 @@ struct ListingDTO: Codable, Identifiable, Hashable, Sendable {
     let favouriteCount: Int?
     let viewCount: Int?
     let publishedAt: Date?
+    let enrichmentError: String?
     let scoreLabel: String?
     let scorePercentile: Double?
     let scoreMedian: Double?
     let scoreSampleCount: Int?
     let scoreConfidence: String?
+    let pricingEvaluated: Bool?
+    let scoringVersion: Int?
     let status: String
     let firstSeenAt: Date
     let updatedAt: Date

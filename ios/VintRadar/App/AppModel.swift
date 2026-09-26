@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+enum PricingLoadError: LocalizedError, Sendable {
+    case timeout
+
+    var errorDescription: String? {
+        "Le chargement de l’explication a dépassé 12 secondes."
+    }
+}
+
 @MainActor
 @Observable
 final class AppModel {
@@ -146,7 +154,8 @@ final class AppModel {
     }
 
     func score(for item: ListingDTO) -> DealScore {
-        if let rawLabel = item.scoreLabel,
+        if item.pricingEvaluated == true,
+           let rawLabel = item.scoreLabel,
            let label = DealLabel(rawValue: rawLabel) {
             return DealScore(
                 label: label,
@@ -163,11 +172,34 @@ final class AppModel {
         (try? await api.get("listings/\(item.id)/history", as: [ListingSnapshotDTO].self)) ?? []
     }
 
-    func pricing(for item: ListingDTO) async -> PricingDTO? {
-        if let stored = pricing[item.id] { return stored }
-        guard let fetched = try? await api.get("listings/\(item.id)/pricing", as: PricingDTO.self) else { return nil }
+    func pricing(for item: ListingDTO, force: Bool = false) async throws -> PricingDTO {
+        if !force, let stored = pricing[item.id] { return stored }
+        let api = self.api
+        let listingID = item.id
+        let fetched: PricingDTO = try await withThrowingTaskGroup(of: PricingDTO.self) { group in
+            group.addTask { try await api.get("listings/\(listingID)/pricing", as: PricingDTO.self) }
+            group.addTask {
+                try await Task.sleep(for: .seconds(12))
+                throw PricingLoadError.timeout
+            }
+            guard let first = try await group.next() else { throw PricingLoadError.timeout }
+            group.cancelAll()
+            return first
+        }
         pricing[item.id] = fetched
         return fetched
+    }
+
+    func enrich(_ item: ListingDTO) async throws -> ListingDTO {
+        let refreshed: ListingDTO = try await api.send(
+            "listings/\(item.id)/enrich", method: "POST", body: EmptyBody()
+        )
+        if let index = listings.firstIndex(where: { $0.id == item.id }) {
+            listings[index] = refreshed
+        }
+        pricing[item.id] = nil
+        localStore.saveListings(listings)
+        return refreshed
     }
 
     func correctProduct(_ item: ListingDTO, key: String?, exclude: Bool) async -> Bool {

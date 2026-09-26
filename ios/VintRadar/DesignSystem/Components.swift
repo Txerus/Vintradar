@@ -42,7 +42,7 @@ struct ServerStatusChip: View {
         HStack(spacing: 8) {
             Circle().fill(isOnline ? VintTheme.deal : VintTheme.danger).frame(width: 9, height: 9)
             Text(isOnline ? "Serveur connecté" : "Données hors ligne")
-            if let lastScan { Text("· \(lastScan.formatted(.relative(presentation: .named)))") }
+            if let lastScan { Text("· \(FrenchFormat.relative(lastScan))") }
         }
         .font(.caption.weight(.medium))
         .foregroundStyle(.secondary)
@@ -72,4 +72,3 @@ struct ErrorBanner: View {
             .accessibilityLabel("Erreur : \(message)")
     }
 }
-

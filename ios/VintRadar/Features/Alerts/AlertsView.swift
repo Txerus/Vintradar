@@ -84,7 +84,7 @@ private struct AlertRow: View {
                     .lineLimit(1)
                 HStack {
                     Text(alert.paused ? "En pause" : "Toutes les \(alert.scanMinutes) min")
-                    if let lastScanAt = alert.lastScanAt { Text("· \(lastScanAt.formatted(.relative(presentation: .named)))") }
+                    if let lastScanAt = alert.lastScanAt { Text("· \(FrenchFormat.relative(lastScanAt))") }
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
@@ -94,4 +94,3 @@ private struct AlertRow: View {
         .accessibilityElement(children: .combine)
     }
 }
-

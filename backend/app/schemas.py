@@ -61,12 +61,15 @@ class ListingOut(BaseModel):
     favourite_count: int | None
     view_count: int | None
     published_at: datetime | None
+    enrichment_error: str | None
     score_label: str | None
     score_percentile: float | None
     score_median: float | None
     score_sample_count: int
     score_confidence: str | None
     pricing_explanation: dict
+    pricing_evaluated: bool = False
+    scoring_version: int = 0
     status: str
     first_seen_at: datetime
     updated_at: datetime

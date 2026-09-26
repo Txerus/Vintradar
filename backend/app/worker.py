@@ -1,6 +1,7 @@
 import asyncio
 import json
 import random
+import re
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timedelta, timezone
@@ -25,6 +26,10 @@ from app.vinted import ItemDetail, VintedClient, VintedError
 
 Notifier = Callable[[Listing, str], Awaitable[None]]
 THRESHOLD_RANK = {"DEAL": 0, "GOOD": 1, "NORMAL": 2, "EXPENSIVE": 3}
+SCORING_VERSION = 2
+KNOWN_CONDITIONS = (
+    "Neuf avec étiquette", "Neuf sans étiquette", "Très bon état", "Bon état", "Satisfaisant",
+)
 
 
 def _words(value: str) -> set[str]:
@@ -113,8 +118,31 @@ def _text_attribute(item: dict, *keys: str) -> str | None:
 def _catalog_summary(item: dict) -> tuple[str | None, str | None, str | None, str | None]:
     item_box = item.get("item_box") if isinstance(item.get("item_box"), dict) else {}
     parts = [part.strip() for part in str(item_box.get("second_line") or "").split("·") if part.strip()]
-    size = _text_attribute(item, "size", "size_title") or (parts[0] if parts else None)
-    condition = _text_attribute(item, "status", "condition") or (parts[-1] if len(parts) > 1 else None)
+    accessibility = str(item_box.get("accessibility_label") or item.get("accessibility_label") or "")
+
+    def known_condition(value: str) -> str | None:
+        normalized = condition_segment(value)
+        if not normalized:
+            return None
+        return next((label for label in KNOWN_CONDITIONS if condition_segment(label) == normalized), value.strip())
+
+    accessibility_condition = None
+    accessibility_size = None
+    for label, value in re.findall(
+        r"(?i)(État|Etat|Taille)\s*:\s*([^,;]+)", accessibility,
+    ):
+        if fold(label) == "etat":
+            accessibility_condition = known_condition(value)
+        else:
+            accessibility_size = value.strip()
+
+    explicit_condition = _text_attribute(item, "status", "condition")
+    condition = known_condition(explicit_condition or "") or accessibility_condition
+    if condition is None:
+        condition = next((known_condition(part) for part in parts if known_condition(part)), None)
+
+    size_candidates = [part for part in parts if known_condition(part) is None]
+    size = _text_attribute(item, "size", "size_title") or accessibility_size or (size_candidates[0] if size_candidates else None)
     brand = _text_attribute(item, "brand") or item_box.get("first_line")
     catalog = item.get("catalog") if isinstance(item.get("catalog"), dict) else {}
     category_id = str(item.get("catalog_id") or catalog.get("id") or "") or None
@@ -182,6 +210,7 @@ def _apply_detail(listing: Listing, detail: ItemDetail) -> None:
     listing.seller_last_login_at = _parse_datetime(seller.get("last_login_at")) or listing.seller_last_login_at
     listing.enriched_at = datetime.now(timezone.utc)
     listing.enrichment_price = listing.price
+    listing.enrichment_error = None
     if detail.status in ListingStatus.__members__:
         listing.status = ListingStatus[detail.status]
 
@@ -193,7 +222,10 @@ async def _normalization(listing: Listing, validator: RebrickableValidator) -> N
     )
     if provisional.key and provisional.key.startswith("lego:") and (validator.api_key or settings.brickset_api_key):
         number = provisional.key.split(":", 1)[1]
-        validation = await validator.validate(number) if validator.api_key else await BricksetSource().set_info(number)
+        try:
+            validation = await validator.validate(number) if validator.api_key else await BricksetSource().set_info(number)
+        except Exception:
+            return provisional
         return normalize(
             listing.title, listing.description, brand=listing.brand,
             category=listing.category_name or listing.category_id, size=listing.size,
@@ -217,6 +249,11 @@ async def _match_product(db: AsyncSession, listing: Listing, normalized: Normali
             )
             db.add(product)
             await db.flush()
+        else:
+            product.brand = normalized.brand or product.brand
+            product.model = normalized.model or product.model
+            product.category_key = normalized.category_key or product.category_key
+            product.attributes = {**(product.attributes or {}), **normalized.attributes, "flags": sorted(normalized.flags)}
     if match is None:
         match = ListingProductMatch(listing_id=listing.id)
         db.add(match)
@@ -255,11 +292,31 @@ async def _all_comparables(db: AsyncSession) -> tuple[list[Comparable], dict[int
 
 
 async def _score_and_explain(db: AsyncSession, listing: Listing) -> Score | None:
+    # Never let a v0.1 badge survive a failed or incomplete v0.2 calculation.
+    listing.score_label = None
+    listing.score_percentile = None
+    listing.score_median = None
+    listing.score_sample_count = 0
+    listing.score_confidence = None
     values, matches = await _all_comparables(db)
     target = next(value for value in values if value.id == listing.id)
     match, product = matches[listing.id]
-    if not product or match.confidence < .4 or not listing.condition_segment:
-        reason = "catégorie, produit ou état non reconnu avec assez de confiance"
+    product_type = None
+    if product:
+        product_type = (product.attributes or {}).get("product_type")
+        key_type = product.canonical_key.split(":", 1)[0]
+        if key_type in {"lego", "console", "game", "accessory"}:
+            product_type = key_type
+    category_confident = product_type in {"lego", "console", "game", "accessory"} or bool(
+        product and (product.attributes or {}).get("category_confident")
+    )
+    if not product or match.confidence < .65 or not category_confident or not listing.condition_segment:
+        if not category_confident:
+            reason = "catégorie console, jeu, accessoire ou autre non déterminée avec confiance"
+        elif not listing.condition_segment:
+            reason = "état de l’annonce non reconnu"
+        else:
+            reason = "produit non reconnu avec assez de confiance"
         listing.pricing_explanation = explanation(
             target, None, price=listing.price, buyer_fee=listing.buyer_fee,
             shipping=listing.shipping_estimate,
@@ -301,6 +358,7 @@ async def _score_and_explain(db: AsyncSession, listing: Listing) -> Score | None
     listing.score_median = score.median if score else None
     listing.score_sample_count = score.count if score else 0
     listing.score_confidence = score.confidence if score else None
+    listing.scoring_version = SCORING_VERSION
     if score and product:
         stat = await db.scalar(select(PriceStat).where(
             PriceStat.product_id == product.id, PriceStat.condition == listing.condition_segment,
@@ -312,6 +370,29 @@ async def _score_and_explain(db: AsyncSession, listing: Listing) -> Score | None
         stat.sample_count, stat.window_days = score.count, 90
         stat.computed_at = datetime.now(timezone.utc)
     return score
+
+
+async def enrich_and_rescore(
+    db: AsyncSession,
+    listing: Listing,
+    client: VintedClient,
+    *,
+    validator: RebrickableValidator | None = None,
+) -> tuple[bool, Score | None]:
+    """Refresh one listing, normalize it and always replace its legacy score."""
+    enriched = False
+    try:
+        detail = await client.detail(listing.external_id)
+        _apply_detail(listing, detail)
+        enriched = True
+    except Exception as error:
+        listing.enrichment_error = f"{type(error).__name__}: {error}"
+        listing.enriched_at = None
+    normalized = await _normalization(listing, validator or RebrickableValidator())
+    await _match_product(db, listing, normalized)
+    await db.flush()
+    score = await _score_and_explain(db, listing)
+    return enriched, score
 
 
 async def _search_pages(client: VintedClient, alert: Alert, pages: int) -> list[dict]:
@@ -412,6 +493,7 @@ async def scan(
     received_ids: set[str] = set()
     enriched = errors = 0
     new_links: list[tuple[Listing, AlertListing]] = []
+    to_rescore: dict[int, Listing] = {}
     async with session_factory() as status_db:
         state = await status_db.get(WorkerState, 1)
         if state is None:
@@ -453,6 +535,7 @@ async def scan(
                 db.add(listing)
                 await db.flush()
             link = await db.get(AlertListing, (database_alert.id, listing.id))
+            is_new_link = link is None
             if link is None:
                 link = AlertListing(alert_id=database_alert.id, listing_id=listing.id)
                 db.add(link)
@@ -474,7 +557,8 @@ async def scan(
                             db.add(SellerProfile(seller_id=listing.seller_id, payload=detail.seller))
                         elif datetime.now(timezone.utc) - profile.fetched_at.replace(tzinfo=profile.fetched_at.tzinfo or timezone.utc) >= timedelta(hours=24):
                             profile.payload, profile.fetched_at = detail.seller, datetime.now(timezone.utc)
-                except (VintedError, Exception):
+                except Exception as error:
+                    listing.enrichment_error = f"{type(error).__name__}: {error}"
                     errors += 1
             # Description exclusions are deliberately applied after enrichment.
             if not allowed({"title": listing.title, "description": listing.description}, database_alert):
@@ -482,6 +566,8 @@ async def scan(
                 continue
             normalized = await _normalization(listing, validator)
             await _match_product(db, listing, normalized)
+            if is_new_link or changed or listing.scoring_version < SCORING_VERSION or not listing.pricing_explanation:
+                to_rescore[listing.id] = listing
             if is_new_listing or changed:
                 db.add(ListingSnapshot(
                     listing_id=listing.id, price=listing.price, total_item_price=listing.total_item_price,
@@ -519,8 +605,11 @@ async def scan(
                     new_products.append(product)
         await _targeted_collect(db, client, database_alert, new_products, validator)
 
+        scores: dict[int, Score | None] = {}
+        for listing in to_rescore.values():
+            scores[listing.id] = await _score_and_explain(db, listing)
         for listing, link in new_links:
-            score = await _score_and_explain(db, listing)
+            score = scores.get(listing.id)
             if not baseline and score_reaches_threshold(score, database_alert.notify_threshold):
                 notifications.append((listing, score.label if score else "UNEVALUATED"))
                 link.notified_at = datetime.now(timezone.utc)
