@@ -242,7 +242,7 @@ struct ListingDetailView: View {
 
     private var detailsSection: some View {
         let displayed = enrichedItem ?? item
-        VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12) {
             Text("Caractéristiques").font(.headline)
             LabeledContent("État", value: displayed.condition ?? "Non précisé")
             LabeledContent("Taille", value: displayed.size ?? "Non précisée")
@@ -291,7 +291,7 @@ struct ListingDetailView: View {
 
     private var sellerSection: some View {
         let displayed = enrichedItem ?? item
-        VStack(alignment: .leading, spacing: 8) {
+        return VStack(alignment: .leading, spacing: 8) {
             Text("Vendeur").font(.headline)
             if let sellerName = displayed.sellerName {
                 Label(sellerName, systemImage: "person.crop.circle.fill")
