@@ -481,10 +481,7 @@ class VintedClient:
                 final_url=final_url,
             ))
             if response.status_code in (404, 410):
-                return ItemDetail(
-                    external_id, "", "", [], None, None, None, None, None, [], [], None,
-                    None, None, None, "DELETED", {}, final_url,
-                )
+                return self._deleted_detail(external_id, final_url)
             if response.status_code in (403, 429):
                 await asyncio.sleep((2**attempt) + random.random())
                 continue
@@ -492,6 +489,12 @@ class VintedClient:
                 raise VintedError(
                     f"item detail HTTP {response.status_code}; url={final_url}; body={body}"
                 )
+            # The current Vinted item route can respond HTTP 200 while each
+            # item-data boundary carries a Next.js 404 digest. This is the
+            # real response observed for removed listings: treating it as a
+            # parser error leaves dead listings ACTIVE forever.
+            if 'data-dgst="NEXT_HTTP_ERROR_FALLBACK;404"' in response.text:
+                return self._deleted_detail(external_id, final_url)
             detail = extract_item_detail(response.text, external_id, final_url)
             if not detail.title or (not detail.description and not detail.photos):
                 snippet = response.text[:500]
@@ -510,6 +513,13 @@ class VintedClient:
             return detail
         raise VintedError(
             f"item detail failed; http={last_status}; url={last_url}; body={last_body}"
+        )
+
+    @staticmethod
+    def _deleted_detail(external_id: str, source_url: str) -> ItemDetail:
+        return ItemDetail(
+            external_id, "", "", [], None, None, None, None, None, [], [], None,
+            None, None, None, "DELETED", {}, source_url,
         )
 
     async def _detail_api(self, external_id: str) -> ItemDetail | None:

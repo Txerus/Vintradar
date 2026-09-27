@@ -1,12 +1,14 @@
 import importlib
+from collections import Counter
 from dataclasses import replace
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
-from app.models import Base, Listing, ListingStatus
+from app.models import Base, Listing, ListingStatus, Product
 from app.vinted import ItemDetail, VintedError
 from app.worker import _apply_detail
 
@@ -73,6 +75,22 @@ def test_compose_runs_pending_rescore_after_migrations() -> None:
     assert command in compose
 
 
+def test_targeted_batch_skips_recent_products_and_prioritizes_impact(monkeypatch) -> None:
+    monkeypatch.syspath_prepend(str(Path(__file__).parents[1] / "scripts"))
+    module = importlib.import_module("rescore_all")
+    now = datetime(2026, 9, 27, tzinfo=timezone.utc)
+    recent = Product(id=1, canonical_key="game:switch2:recent:standard", targeted_at=now)
+    low = Product(
+        id=2, canonical_key="game:switch2:low:standard",
+        targeted_at=now - timedelta(days=2),
+    )
+    high = Product(id=3, canonical_key="game:switch2:high:standard", targeted_at=None)
+    selected = module._target_candidates(
+        [recent, low, high], Counter({1: 20, 2: 2, 3: 8}), now=now, budget=2,
+    )
+    assert [value.id for value in selected] == [3, 2]
+
+
 @pytest.mark.asyncio
 async def test_rescore_all_reenriches_active_legacy_rows_and_clears_stale_badges(tmp_path, monkeypatch) -> None:
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'rescore.db'}")
@@ -110,7 +128,7 @@ async def test_rescore_all_reenriches_active_legacy_rows_and_clears_stale_badges
     }
     async with sessions() as db:
         rows = list(await db.scalars(select(Listing).order_by(Listing.id)))
-        assert all(row.scoring_version == 3 for row in rows)
+        assert all(row.scoring_version == 4 for row in rows)
         assert all(row.pricing_explanation for row in rows)
         assert all(row.score_label is not None for row in rows[:6])
         assert rows[-1].score_label is None

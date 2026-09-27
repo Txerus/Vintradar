@@ -26,7 +26,7 @@ from app.vinted import ItemDetail, VintedClient, VintedError
 
 Notifier = Callable[[Listing, str], Awaitable[None]]
 THRESHOLD_RANK = {"DEAL": 0, "GOOD": 1, "NORMAL": 2, "EXPENSIVE": 3}
-SCORING_VERSION = 3
+SCORING_VERSION = 4
 KNOWN_CONDITIONS = (
     "Neuf avec étiquette", "Neuf sans étiquette", "Très bon état", "Bon état", "Satisfaisant",
 )

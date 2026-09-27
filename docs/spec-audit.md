@@ -15,6 +15,16 @@
 | États et catégories enrichis | Fait | Les cinq états français, synonymes observables anglais/français et ordre `sans`/`avec étiquette` sont testés ; tout inconnu produit un log structuré. La catégorie issue du détail alimente la normalisation. |
 | Objectifs sur les 277 annonces | À valider serveur | Les mesures avant/après sont émises par `rescore_all.py`. Ce dépôt ne peut pas accéder à la base déployée : aucun taux après correction n’est déclaré avant exécution serveur. |
 
+## Recette serveur v0.2.2 et correctifs v0.2.3
+
+| Mesure / exigence | État réel | Suite |
+|---|---|---|
+| Enrichissement | 10 échecs sur 389 annonces actives, soit 2,57 % : objectif inférieur à 10 % atteint. | Les dix réponses HTTP 200 portent réellement le digest Next.js 404 ; la v0.2.3 les classe `DELETED` au lieu d’échouer. |
+| Prix non évalué | 102 sur 389, soit 26,22 % : objectif inférieur à 20 % non atteint. | 83 manquent de comparables, 12 de reconnaissance produit, 4 d’état et 3 de catégorie. |
+| Recherche ciblée | 24 produits interrogés et 72 annonces collectées lors du rescore réel. | Le lot suivant ignorait mal le cache et pouvait reprendre les mêmes produits. La v0.2.3 exclut les recherches de moins de 24 h et priorise le nombre d’annonces à débloquer. |
+| Annonce sans raison | 0 après rescore réel. | Objectif atteint et invariant testé. |
+| Mesures v0.2.3 | Non vérifiées sur le serveur. | Migration `0007` + sortie `before`/`after` requises avant de déclarer l’objectif de 20 % atteint. |
+
 ## Correctifs de recette v0.2.1
 
 | Exigence | État | Preuve / limite |

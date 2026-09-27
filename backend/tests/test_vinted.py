@@ -195,6 +195,26 @@ async def test_detail_404_is_deleted_not_parse_error(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+async def test_detail_http_200_next_404_shell_is_deleted(monkeypatch) -> None:
+    shell = '<html><template data-dgst="NEXT_HTTP_ERROR_FALLBACK;404"></template></html>'
+    http = FakeHTTP([
+        FakeResponse(200, "<html></html>"),
+        FakeResponse(404, "route missing"),
+        FakeResponse(404, "route missing"),
+        FakeResponse(200, shell, url="https://www.vinted.fr/items/999-deleted"),
+    ])
+    client = VintedClient(http=http)
+
+    async def no_throttle():
+        return None
+
+    monkeypatch.setattr(client, "_throttle", no_throttle)
+    detail = await client.detail("999")
+    assert detail.status == "DELETED"
+    assert detail.source_url == "https://www.vinted.fr/items/999-deleted"
+
+
+@pytest.mark.asyncio
 async def test_detail_parse_error_keeps_http_final_url_and_body(monkeypatch) -> None:
     body = "<html><title>Unexpected shell</title>" + "x" * 1000
     http = FakeHTTP([

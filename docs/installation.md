@@ -142,3 +142,15 @@ docker compose run --rm api python scripts/diagnose_enrichment.py --limit 100
 
 Cette commande est en lecture seule. Ajouter `--apply` pour persister les fiches
 redevenues lisibles et recalculer leur score.
+
+Si la ligne `after` montre encore des produits sous cinq comparables, la commande
+suivante consomme uniquement le budget quotidien de recherches ciblées, sans
+relire toutes les fiches article :
+
+```bash
+docker compose run --rm api python scripts/rescore_all.py --targeted-only
+```
+
+Un produit recherché dans les dernières 24 heures est ignoré. Les produits sont
+traités par nombre décroissant d’annonces qu’ils peuvent débloquer, afin qu’une
+nouvelle exécution progresse au lieu de reprendre toujours le premier lot.

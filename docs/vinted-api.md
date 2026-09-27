@@ -42,6 +42,10 @@ puis mémorise leur indisponibilité. Le repli validé est la page publique
   attributs (taille, état, couleurs), fil de catégorie, identifiants, favoris/vues
   quand présents et résumé vendeur ;
 - HTTP 404 : annonce `DELETED` ;
+- HTTP 200 contenant un digest Next.js `NEXT_HTTP_ERROR_FALLBACK;404` : annonce
+  `DELETED` également. Ce cas réel a été observé le 26 septembre 2026 sur les dix
+  fiches résiduelles diagnostiquées par le serveur ; Vinted conserve l’enveloppe
+  de page et ses squelettes tout en marquant les frontières de données en 404 ;
 - `is_sold`/indisponibilité : `SOLD_CONFIRMED` ;
 - `is_reserved` : traité comme `SOLD_CONFIRMED` pour les statistiques, conformément à la règle produit ;
 - réponse inexploitable : `DISAPPEARED`, jamais « vendue » par supposition.

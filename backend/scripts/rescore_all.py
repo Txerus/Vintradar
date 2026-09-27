@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import json
 from collections import Counter
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 from sqlalchemy import select
@@ -42,7 +43,26 @@ def _metrics(listings: list[Listing]) -> dict:
     }
 
 
-async def rescore(*, pending_only: bool = False, targeted: bool = True, client=None) -> dict:
+def _target_candidates(
+    candidates: list[Product], affected: Counter,
+    *, now: datetime, budget: int,
+) -> list[Product]:
+    eligible = []
+    for product in candidates:
+        targeted_at = product.targeted_at
+        if targeted_at and targeted_at.tzinfo is None:
+            targeted_at = targeted_at.replace(tzinfo=timezone.utc)
+        if targeted_at and now - targeted_at < timedelta(hours=24):
+            continue
+        eligible.append(product)
+    eligible.sort(key=lambda value: (-affected[value.id], value.id))
+    return eligible[:budget]
+
+
+async def rescore(
+    *, pending_only: bool = False, targeted: bool = True,
+    targeted_only: bool = False, client=None,
+) -> dict:
     vinted = client or VintedClient()
     validator = RebrickableValidator()
     result = {
@@ -63,16 +83,17 @@ async def rescore(*, pending_only: bool = False, targeted: bool = True, client=N
         result["selected"] = len(listings)
 
         # Normalize the whole corpus first: no listing is scored against stale v0.1 matches.
-        for listing in listings:
-            try:
-                detail = await vinted.detail(listing.external_id)
-                _apply_detail(listing, detail)
-                result["enriched"] += 1
-            except Exception as error:
-                listing.enrichment_error = f"{type(error).__name__}: {error}"
-                result["enrichment_errors"] += 1
-            normalized = await _normalization(listing, validator)
-            await _match_product(db, listing, normalized)
+        if not targeted_only:
+            for listing in listings:
+                try:
+                    detail = await vinted.detail(listing.external_id)
+                    _apply_detail(listing, detail)
+                    result["enriched"] += 1
+                except Exception as error:
+                    listing.enrichment_error = f"{type(error).__name__}: {error}"
+                    result["enrichment_errors"] += 1
+                normalized = await _normalization(listing, validator)
+                await _match_product(db, listing, normalized)
         await db.flush()
 
         for listing in listings:
@@ -87,10 +108,17 @@ async def rescore(*, pending_only: bool = False, targeted: bool = True, client=N
                     == "moins de 5 annonces comparables admissibles sur 90 jours"
                 ])
             )))
-            product_ids = list(dict.fromkeys(
-                value.product_id for value in matches if value.product_id
-            ))[:settings.targeted_search_daily_budget]
-            products = list(await db.scalars(select(Product).where(Product.id.in_(product_ids)))) if product_ids else []
+            affected = Counter(value.product_id for value in matches if value.product_id)
+            candidate_ids = list(affected)
+            candidates = list(await db.scalars(
+                select(Product).where(Product.id.in_(candidate_ids))
+            )) if candidate_ids else []
+            # Spend the request budget where it can unlock the most listings,
+            # and never re-query yesterday's first batch on every invocation.
+            products = _target_candidates(
+                candidates, affected, now=datetime.now(timezone.utc),
+                budget=settings.targeted_search_daily_budget,
+            )
             result["targeted_products"] = len(products)
             if products:
                 search_context = SimpleNamespace(
@@ -108,6 +136,9 @@ async def rescore(*, pending_only: bool = False, targeted: bool = True, client=N
         await db.commit()
         after = list(await db.scalars(select(Listing).where(Listing.id.in_(original_ids)))) if original_ids else []
         result["after"] = _metrics(after)
+        result["remaining_insufficient_listings"] = result["after"]["unevaluated_reasons"].get(
+            "moins de 5 annonces comparables admissibles sur 90 jours", 0,
+        )
     print(json.dumps({"event": "rescore_all", **result}, ensure_ascii=False, sort_keys=True))
     return result
 
@@ -124,8 +155,17 @@ def main() -> None:
         action="store_true",
         help="Skip targeted Vinted searches for products lacking comparables.",
     )
+    parser.add_argument(
+        "--targeted-only",
+        action="store_true",
+        help="Skip detail requests and spend today's targeted-search budget on the remaining products.",
+    )
     args = parser.parse_args()
-    asyncio.run(rescore(pending_only=args.pending, targeted=not args.no_targeted))
+    asyncio.run(rescore(
+        pending_only=args.pending,
+        targeted=not args.no_targeted,
+        targeted_only=args.targeted_only,
+    ))
 
 
 if __name__ == "__main__":
