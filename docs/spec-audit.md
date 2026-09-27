@@ -24,6 +24,7 @@
 | Recherche ciblée | 24 produits interrogés et 72 annonces collectées lors du rescore réel. | Le lot suivant ignorait mal le cache et pouvait reprendre les mêmes produits. La v0.2.3 exclut les recherches de moins de 24 h et priorise le nombre d’annonces à débloquer. |
 | Annonce sans raison | 0 après rescore réel. | Objectif atteint et invariant testé. |
 | Mesures v0.2.3 | Non vérifiées sur le serveur. | Migration `0007` + sortie `before`/`after` requises avant de déclarer l’objectif de 20 % atteint. |
+| Disponibilité pendant rescore | Corrigé | Le rescore serveur précédent a réellement bloqué le démarrage API 6 269,4 s. Alembic reste dans `migrate`, mais le rescore est désormais exécuté au démarrage du worker : l’API reste consultable pendant le calcul. |
 
 ## Correctifs de recette v0.2.1
 

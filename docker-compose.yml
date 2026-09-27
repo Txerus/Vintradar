@@ -30,14 +30,14 @@ services:
   worker:
     build: ./backend
     env_file: .env
-    command: python -m app.worker
+    command: sh -c "python scripts/rescore_all.py --pending && python -m app.worker"
     depends_on:
       migrate: {condition: service_completed_successfully}
     restart: unless-stopped
   migrate:
     build: ./backend
     env_file: .env
-    command: sh -c "alembic upgrade head && python scripts/rescore_all.py --pending"
+    command: alembic upgrade head
     depends_on:
       postgres: {condition: service_healthy}
   ntfy:

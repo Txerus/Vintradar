@@ -69,10 +69,11 @@ def test_unknown_enriched_condition_is_logged_for_mapping(capsys) -> None:
     assert listing.condition_segment is None
 
 
-def test_compose_runs_pending_rescore_after_migrations() -> None:
+def test_compose_starts_api_after_migration_and_rescores_in_worker() -> None:
     compose = (Path(__file__).parents[2] / "docker-compose.yml").read_text()
-    command = 'alembic upgrade head && python scripts/rescore_all.py --pending'
-    assert command in compose
+    assert 'command: alembic upgrade head' in compose
+    assert 'command: sh -c "python scripts/rescore_all.py --pending && python -m app.worker"' in compose
+    assert 'migrate: {condition: service_completed_successfully}' in compose
 
 
 def test_targeted_batch_skips_recent_products_and_prioritizes_impact(monkeypatch) -> None:
