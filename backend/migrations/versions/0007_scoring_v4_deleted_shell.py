@@ -24,7 +24,7 @@ def upgrade() -> None:
             score_confidence = NULL,
             pricing_explanation = '{}',
             scoring_version = 0
-        WHERE status IN ('ACTIVE', 'RESERVED')
+        WHERE status::text IN ('ACTIVE', 'RESERVED')
         """
     )
 
